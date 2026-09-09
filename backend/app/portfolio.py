@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app import alchemy_client, rpc_fallback
 from app.config import settings
 from app.models import PortfolioSnapshot
+from app.valuation import add_valuation
 
 logger = logging.getLogger("orblo.portfolio")
 
@@ -52,7 +53,7 @@ def fetch_portfolio(chain_id: int, address: str) -> dict:
     tokens = results["tokens"]
     recent_transactions = results["recent_transactions"]
 
-    return {
+    result = {
         "address": address,
         "chainId": chain_id,
         "nativeBalance": str(Decimal(native_wei) / WEI_PER_ETHER),
@@ -61,14 +62,24 @@ def fetch_portfolio(chain_id: int, address: str) -> dict:
         "source": source,
     }
 
+    return add_valuation(result)
+
 
 def save_snapshot(db: Session, wallet_address: str, chain_id: int, raw_json: dict) -> None:
     """Persist a fetched snapshot. Fails soft: logs and returns on any DB
     error (e.g. Postgres not running yet) rather than failing the request -
     the caller already has data to return to the client.
     """
+    total_usd_value = raw_json.get("totalUsdValue")
     try:
-        db.add(PortfolioSnapshot(wallet_address=wallet_address, chain_id=chain_id, raw_json=raw_json))
+        db.add(
+            PortfolioSnapshot(
+                wallet_address=wallet_address,
+                chain_id=chain_id,
+                total_usd_value=Decimal(total_usd_value) if total_usd_value is not None else None,
+                raw_json=raw_json,
+            )
+        )
         db.commit()
     except SQLAlchemyError as e:
         db.rollback()

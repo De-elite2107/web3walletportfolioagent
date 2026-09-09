@@ -44,20 +44,31 @@ uvicorn app.main:app --reload --port 8000
 
 - `GET /health` - liveness check, doesn't touch the database.
 - `GET /portfolio?address=0x...&chain_id=1` - fetches native balance, ERC-20
-  balances, and the 20 most recent transactions for a wallet, persists the
-  snapshot to Postgres, and returns:
+  balances, prices everything in USD, and the 20 most recent transactions
+  for a wallet, persists the snapshot to Postgres, and returns:
   ```json
   {
     "address": "0x...",
     "chainId": 1,
     "nativeBalance": "6.7121...",
-    "tokens": [{"symbol": "USDC", "contractAddress": "0x...", "balance": "37.19"}],
+    "nativePriceUsd": "2495.3602",
+    "nativeUsdValue": "16749.23...",
+    "nativeAllocationPercent": 80.8,
+    "tokens": [
+      {
+        "symbol": "USDC", "contractAddress": "0x...", "balance": "37.19",
+        "priceUsd": "0.9998", "usdValue": "37.18", "allocationPercent": 0.18
+      }
+    ],
     "recentTransactions": [{"hash": "0x...", "from": "0x...", "to": "0x...", "value": 1.5, "timestamp": "2026-..."}],
+    "totalUsdValue": "20729.27...",
+    "concentrationRisk": true,
+    "concentrationToken": "ETH",
     "source": "alchemy"
   }
   ```
   `chain_id` defaults to 1 (mainnet); 11155111 (sepolia) is also supported.
-  No price/valuation logic yet - that's a later step.
+  No LLM analysis or chat interface yet - that's a later step.
 
   **Data source:** uses Alchemy (`alchemy_getTokenBalances` /
   `alchemy_getTokenMetadata` / `alchemy_getAssetTransfers`) when
@@ -68,11 +79,28 @@ uvicorn app.main:app --reload --port 8000
   `recentTransactions` always comes back empty, since plain JSON-RPC has no
   address-activity index to query.
 
+  **Pricing (`app/pricing.py`, `app/valuation.py`):** Chainlink price feeds
+  first - read on-chain via `eth_call` against `AggregatorV3Interface`
+  (`decimals()` + `latestRoundData()`), no ABI library needed for just those
+  two selectors. Feed addresses are hardcoded per chain/symbol and were
+  verified on-chain (sane `decimals()`/price) before being committed - see
+  `CHAINLINK_FEEDS` in `app/pricing.py`. Tokens without a mapped feed fall
+  back to CoinGecko's free API (mainnet only - CoinGecko doesn't track
+  Sepolia). If both fail (no feed *and* no CoinGecko listing, or CoinGecko
+  rate-limits you - it will, on a wallet holding many long-tail tokens),
+  that holding's `priceUsd`/`usdValue`/`allocationPercent` come back `null`
+  rather than failing the request. `totalUsdValue` and allocation percentages
+  only account for holdings that *did* price successfully.
+  `concentrationRisk` is `true` (with `concentrationToken` naming the asset)
+  when native ETH or any single token exceeds 50% of `totalUsdValue`.
+
   **Persistence:** every fetch is saved to the `portfolio_snapshots` table
-  (`wallet_address`, `chain_id`, `fetched_at`, `raw_json`) - just storage for
-  now, no change-over-time view built on it yet. If Postgres isn't reachable
-  the request still succeeds; the failure is logged as a warning instead of
-  failing the response.
+  (`wallet_address`, `chain_id`, `fetched_at`, `total_usd_value`, `raw_json`)
+  - `total_usd_value` is its own column so later change-over-time queries
+  don't need to parse JSON, while `raw_json` keeps the full priced
+  breakdown. Just storage for now, no change-over-time view built on it
+  yet. If Postgres isn't reachable the request still succeeds; the failure
+  is logged as a warning instead of failing the response.
 
 ### Model tiers (for the upcoming AI analysis step)
 
