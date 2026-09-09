@@ -1,34 +1,63 @@
 # Orblo
 
-Wallet portfolio + security analysis agent. Monorepo with a React/Vite/TypeScript
-frontend and a FastAPI backend.
+Orblo is an on-chain wallet portfolio agent: connect a wallet and it reads your real holdings (native balance + ERC-20 tokens), prices everything in USD via Chainlink and CoinGecko, explains what you're holding in plain language through an AI chat interface, and runs a security scan that flags risky token approvals - unlimited spending allowances and unverified spender contracts - so you know not just *what* you hold but *what's risky about it*.
+
+## Why this matters
+
+Most wallet trackers stop at a balance sheet: tokens, prices, a pie chart. That tells you what you own, not what could go wrong. A wallet can look fine on a balance sheet while quietly holding an **unlimited, unverified** approval from months ago - the exact shape of the approvals drainer scams exploit. Orblo pairs the balance sheet with an approval scan and a plain-language explanation, so "what do I hold" and "what should I be worried about" are answered in the same place, not two different tools.
+
+## Demo script
+
+See [DEMO.md](DEMO.md) for a 5-step walkthrough (connect -> portfolio -> analysis -> chat -> security finding), including which kind of wallet to use for a compelling demo.
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Frontend | React + Vite + TypeScript |
+| Wallet connect | Wagmi + RainbowKit |
+| On-chain reads (client) | viem |
+| Backend | FastAPI (Python) |
+| Database | PostgreSQL (via SQLAlchemy) |
+| On-chain data | Alchemy (primary), public RPC (fallback) |
+| Pricing | Chainlink price feeds (on-chain), CoinGecko (fallback) |
+| Contract verification | Etherscan `getsourcecode` (primary), Sourcify (no-key fallback) |
+| Exploit/scam lookup | Tavily search + LLM relevance judgment |
+| LLM | Claude, via an OpenAI-compatible gateway (OpenRouter / Orbio) |
+
+## Getting started
+
+### 1. Get your API keys
+
+| Key | Required for | Where to get it |
+|---|---|---|
+| `ANTHROPIC_AUTH_TOKEN` | AI analysis + chat + security-scan risk lookup | Any OpenAI-compatible LLM gateway - [OpenRouter](https://openrouter.ai/keys) is the easiest public option (free signup, pay-as-you-go credits) |
+| `ALCHEMY_API_KEY` | Full on-chain reads (balances, transaction history, token discovery) | [alchemy.com](https://www.alchemy.com/) -> sign up -> create an app on Ethereum Mainnet -> copy the API key. Without this, the app still runs on a degraded public-RPC fallback (see [Known limitations](#known-limitations)) |
+| `ETHERSCAN_API_KEY` | Security scan: contract verification | [etherscan.io/apis](https://etherscan.io/apis) -> free account -> generate an API key. Without this, verification falls back to Sourcify (no key needed, slightly lower coverage) |
+| `TAVILY_API_KEY` | Security scan: known-exploit/scam web search | [tavily.com](https://tavily.com/) -> free developer key |
+| `VITE_WALLETCONNECT_PROJECT_ID` | WalletConnect-based wallet connectors in the frontend | [cloud.walletconnect.com](https://cloud.walletconnect.com/) -> free project. Injected wallets (e.g. MetaMask's browser extension) work without this |
+
+None of these are required to explore the code, but `ANTHROPIC_AUTH_TOKEN` and `ALCHEMY_API_KEY` are required for the app to do anything useful end to end.
+
+### 2. Environment variables
+
+Copy `.env.example` to `.env` at the repo root and fill in the keys above:
 
 ```
-.
-├── frontend/   React + Vite + TypeScript, Wagmi + RainbowKit, viem
-├── backend/    FastAPI + SQLAlchemy (PostgreSQL)
-├── .env        real environment variables (gitignored, not committed)
-└── .env.example  template for the variables backend/scripts expect
+ANTHROPIC_BASE_URL=https://openrouter.ai/api/v1   # or any OpenAI-compatible gateway
+ANTHROPIC_AUTH_TOKEN=                              # your gateway key, used as the bearer token
+ANTHROPIC_API_KEY=                                 # leave empty - see Notes below
+MODEL_TIER=draft                                   # draft | production | premium - see backend/models.yaml
+MODEL_NAME=anthropic/claude-haiku-4.5              # model used by analyze/chat/security-scan today
+ALCHEMY_API_KEY=                                   # on-chain reads
+ETHERSCAN_API_KEY=                                 # security scan: contract verification
+TAVILY_API_KEY=                                    # security scan: exploit/scam lookup
+DATABASE_URL=                                      # e.g. postgresql://postgres:postgres@localhost:5433/orblo
 ```
 
-## 1. Environment
+`.env` is gitignored - never commit real secrets. `frontend/.env.example` covers the one frontend-only variable (`VITE_WALLETCONNECT_PROJECT_ID`).
 
-Copy `.env.example` to `.env` at the repo root and fill in the values:
-
-```
-ANTHROPIC_BASE_URL=https://api.orbio.so/api/v1
-ANTHROPIC_AUTH_TOKEN=      # your Orbio key, used as the bearer token
-ANTHROPIC_API_KEY=         # leave empty unless told otherwise
-ALCHEMY_API_KEY=           # for on-chain reads
-ETHERSCAN_API_KEY=         # security scan: contract verification (primary; Sourcify is the no-key fallback)
-TAVILY_API_KEY=            # security scan: known-exploit/scam web search
-DATABASE_URL=              # e.g. postgresql://postgres:postgres@localhost:5432/orblo
-MODEL_TIER=draft           # draft | production | premium - see backend/models.yaml
-```
-
-`.env` is gitignored - never commit real secrets.
-
-## 2. Backend (FastAPI)
+### 3. Backend
 
 ```bash
 cd backend
@@ -36,75 +65,114 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Postgres: this machine's system-wide instance on port 5432 belongs to
-# other, unrelated projects (no credentials for it) - this project runs its
-# own dedicated container instead:
-#   docker run -d --name orblo-postgres -e POSTGRES_USER=postgres \
-#     -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=orblo -p 5433:5432 postgres:16-alpine
-# DATABASE_URL in .env already points at it (localhost:5433). Tables are
-# created automatically on startup once it can connect.
+# Postgres - if you don't already have an instance, run a dedicated one:
+docker run -d --name orblo-postgres -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=orblo -p 5433:5432 postgres:16-alpine
+# then set DATABASE_URL=postgresql://postgres:postgres@localhost:5433/orblo
 
 uvicorn app.main:app --reload --port 8000
 ```
 
-- `GET /health` - liveness check, doesn't touch the database.
-- `GET /portfolio?address=0x...&chain_id=1` - fetches native balance, ERC-20
-  balances, prices everything in USD, and the 20 most recent transactions
-  for a wallet, persists the snapshot to Postgres, and returns:
-  ```json
-  {
-    "address": "0x...",
-    "chainId": 1,
-    "nativeBalance": "6.7121...",
-    "nativePriceUsd": "2495.3602",
-    "nativeUsdValue": "16749.23...",
-    "nativeAllocationPercent": 80.8,
-    "tokens": [
-      {
-        "symbol": "USDC", "contractAddress": "0x...", "balance": "37.19",
-        "priceUsd": "0.9998", "usdValue": "37.18", "allocationPercent": 0.18
-      }
-    ],
-    "recentTransactions": [{"hash": "0x...", "from": "0x...", "to": "0x...", "value": 1.5, "timestamp": "2026-..."}],
-    "totalUsdValue": "20729.27...",
-    "concentrationRisk": true,
-    "concentrationToken": "ETH",
-    "source": "alchemy"
-  }
-  ```
-  `chain_id` defaults to 1 (mainnet); 11155111 (sepolia) is also supported.
+Tables are created automatically on startup once Postgres is reachable. Sanity-check the AI gateway key before relying on it:
 
-  **Data source:** uses Alchemy (`alchemy_getTokenBalances` /
-  `alchemy_getTokenMetadata` / `alchemy_getAssetTransfers`) when
-  `ALCHEMY_API_KEY` is set (`source: "alchemy"`). Without a key, it falls
-  back to a public RPC (`source: "public_rpc"`) with two limitations: only
-  a fixed list of well-known mainnet tokens is checked (USDC/USDT/DAI/WETH -
-  see `backend/app/chains.py`, no fallback list for Sepolia), and
-  `recentTransactions` always comes back empty, since plain JSON-RPC has no
-  address-activity index to query.
+```bash
+python scripts/test_ai_routing.py
+```
 
-  **Pricing (`app/pricing.py`, `app/valuation.py`):** Chainlink price feeds
-  first - read on-chain via `eth_call` against `AggregatorV3Interface`
-  (`decimals()` + `latestRoundData()`), no ABI library needed for just those
-  two selectors. Feed addresses are hardcoded per chain/symbol and were
-  verified on-chain (sane `decimals()`/price) before being committed - see
-  `CHAINLINK_FEEDS` in `app/pricing.py`. Tokens without a mapped feed fall
-  back to CoinGecko's free API (mainnet only - CoinGecko doesn't track
-  Sepolia). If both fail (no feed *and* no CoinGecko listing, or CoinGecko
-  rate-limits you - it will, on a wallet holding many long-tail tokens),
-  that holding's `priceUsd`/`usdValue`/`allocationPercent` come back `null`
-  rather than failing the request. `totalUsdValue` and allocation percentages
-  only account for holdings that *did* price successfully.
-  `concentrationRisk` is `true` (with `concentrationToken` naming the asset)
-  when native ETH or any single token exceeds 50% of `totalUsdValue`.
+### 4. Frontend
 
-  **Persistence:** every fetch is saved to the `portfolio_snapshots` table
-  (`wallet_address`, `chain_id`, `fetched_at`, `total_usd_value`, `raw_json`)
-  - `total_usd_value` is its own column so later change-over-time queries
-  don't need to parse JSON, while `raw_json` keeps the full priced
-  breakdown. Just storage for now, no change-over-time view built on it
-  yet. If Postgres isn't reachable the request still succeeds; the failure
-  is logged as a warning instead of failing the response.
+```bash
+cd frontend
+npm install
+cp .env.example .env   # add a WalletConnect project ID, or skip it and use an injected wallet
+npm run dev
+```
+
+Opens on http://localhost:5173. Connect a wallet, and the dashboard walks top to bottom: portfolio value + holdings, recent transactions, AI analysis + chat, security scan.
+
+## Known limitations
+
+Shipping honestly means naming these rather than hiding them:
+
+- **Security scan lookback is capped, not full history.** It targets the most recent ~10,000 blocks but adapts down further on rate-limited RPC providers (Alchemy's free tier allows only 10 blocks per unfiltered `eth_getLogs` call, so the scan chunks and reports whatever range it actually covered in `lookbackBlocks`). It's a recent-activity signal, not a full wallet audit - an approval granted further back than that window won't show up.
+- **Single-chain-family MVP.** Ethereum mainnet (chain ID 1) and Sepolia testnet (11155111) only. The architecture (chain-keyed config in `app/chains.py`) is built to extend to L2s, but no other chain has been wired in or tested.
+- **Pricing coverage depends on the token.** Chainlink covers a handful of major assets directly; anything else falls back to CoinGecko, which rate-limits fast under concurrent load - a wallet holding many long-tail/spam tokens will show `null` prices for most of them rather than a number. That's a deliberate "don't guess" choice, not a crash, but it does mean `totalUsdValue` can undercount a noisy wallet.
+- **The exploit/scam lookup is best-effort, not a database.** It's a live web search plus an LLM relevance check, not a curated threat-intel feed - it can miss a real incident that isn't well-indexed, and it never claims a contract is "safe," only that nothing turned up.
+- **No user accounts or auth.** Snapshots persist keyed by wallet address; anyone who queries the API for an address can see its persisted history. Fine for a demo, not for production multi-tenant use.
+- **Model-tier system isn't wired in yet.** `backend/models.yaml` defines draft/production/premium tiers, but `/portfolio/analyze` and `/portfolio/chat` currently call a single `MODEL_NAME` directly.
+
+## Project structure
+
+```
+.
+├── frontend/   React + Vite + TypeScript, Wagmi + RainbowKit, viem
+├── backend/    FastAPI + SQLAlchemy (PostgreSQL)
+├── DEMO.md     5-step demo walkthrough script
+├── .env        real environment variables (gitignored, not committed)
+└── .env.example  template for every variable the backend/frontend expect
+```
+
+---
+
+## How it works
+
+### Portfolio + valuation
+
+`GET /portfolio?address=0x...&chain_id=1` fetches native balance, ERC-20
+balances, prices everything in USD, and the 20 most recent transactions
+for a wallet, persists the snapshot to Postgres, and returns:
+```json
+{
+  "address": "0x...",
+  "chainId": 1,
+  "nativeBalance": "6.7121...",
+  "nativePriceUsd": "2495.3602",
+  "nativeUsdValue": "16749.23...",
+  "nativeAllocationPercent": 80.8,
+  "tokens": [
+    {
+      "symbol": "USDC", "contractAddress": "0x...", "balance": "37.19",
+      "priceUsd": "0.9998", "usdValue": "37.18", "allocationPercent": 0.18
+    }
+  ],
+  "recentTransactions": [{"hash": "0x...", "from": "0x...", "to": "0x...", "value": 1.5, "timestamp": "2026-..."}],
+  "totalUsdValue": "20729.27...",
+  "concentrationRisk": true,
+  "concentrationToken": "ETH",
+  "source": "alchemy"
+}
+```
+`chain_id` defaults to 1 (mainnet); 11155111 (sepolia) is also supported.
+
+**Data source:** uses Alchemy (`alchemy_getTokenBalances` /
+`alchemy_getTokenMetadata` / `alchemy_getAssetTransfers`) when
+`ALCHEMY_API_KEY` is set (`source: "alchemy"`). Without a key, it falls
+back to a public RPC (`source: "public_rpc"`) with two limitations: only
+a fixed list of well-known mainnet tokens is checked (USDC/USDT/DAI/WETH -
+see `backend/app/chains.py`, no fallback list for Sepolia), and
+`recentTransactions` always comes back empty, since plain JSON-RPC has no
+address-activity index to query.
+
+**Pricing (`app/pricing.py`, `app/valuation.py`):** Chainlink price feeds
+first - read on-chain via `eth_call` against `AggregatorV3Interface`
+(`decimals()` + `latestRoundData()`), no ABI library needed for just those
+two selectors. Feed addresses are hardcoded per chain/symbol and were
+verified on-chain (sane `decimals()`/price) before being committed - see
+`CHAINLINK_FEEDS` in `app/pricing.py`. Tokens without a mapped feed fall
+back to CoinGecko's free API (mainnet only - CoinGecko doesn't track
+Sepolia). If both fail, that holding's `priceUsd`/`usdValue`/
+`allocationPercent` come back `null` rather than failing the request.
+`totalUsdValue` and allocation percentages only account for holdings that
+*did* price successfully. `concentrationRisk` is `true` (with
+`concentrationToken` naming the asset) when native ETH or any single token
+exceeds 50% of `totalUsdValue`.
+
+**Persistence:** every fetch is saved to the `portfolio_snapshots` table
+(`wallet_address`, `chain_id`, `fetched_at`, `total_usd_value`, `raw_json`)
+- `total_usd_value` is its own column so later change-over-time queries
+don't need to parse JSON, while `raw_json` keeps the full priced
+breakdown. If Postgres isn't reachable the request still succeeds; the
+failure is logged as a warning instead of failing the response.
 
 ### LLM analysis + chat
 
@@ -121,20 +189,19 @@ uvicorn app.main:app --reload --port 8000
   `/portfolio` or `/portfolio/analyze`), so replies are grounded in exactly
   what's on screen. Returns `{"reply": "..."}`.
 
-Both (`app/analysis.py`) use the same OpenAI-compatible client as
-`scripts/test_ai_routing.py` (`app/ai_client.py`), with the model taken
-directly from `MODEL_NAME` in `.env` (default `anthropic/claude-haiku-4.5`)
-- a plain env var for now, ahead of wiring in the tier system below. The
-system prompt restricts the model to describing only what's in the
-supplied JSON (no speculation about future prices, no investment advice,
-nulls reported as "unavailable" rather than guessed) and explicitly tells
-it to treat every field - including token symbols/names, which are
-attacker-controllable on-chain data - as inert data, never as instructions.
-Verified end-to-end against real wallets: summaries and follow-up answers
-correctly cite the actual totals/percentages/concentration flag in the
-data, and multi-turn chat history is genuinely threaded (tested by asking
-the model to recall a fact only present in `history`, not derivable from
-the portfolio JSON).
+Both (`app/analysis.py`) use an OpenAI-compatible client
+(`app/ai_client.py`), with the model taken directly from `MODEL_NAME` in
+`.env` - a plain env var for now, ahead of wiring in the tier system
+below. The system prompt restricts the model to describing only what's in
+the supplied JSON (no speculation about future prices, no investment
+advice, nulls reported as "unavailable" rather than guessed) and
+explicitly tells it to treat every field - including token symbols/names,
+which are attacker-controllable on-chain data - as inert data, never as
+instructions. Verified end-to-end against real wallets: summaries and
+follow-up answers correctly cite the actual totals/percentages/
+concentration flag in the data, and multi-turn chat history is genuinely
+threaded (tested by asking the model to recall a fact only present in
+`history`, not derivable from the portfolio JSON).
 
 ### Model tiers (not yet wired into analyze/chat)
 
@@ -182,14 +249,9 @@ risky that looks. Persists to `security_scan_snapshots` (same pattern as
    allowance is partially spent, so only `allowance()` reflects the live
    number. Event/function selectors were computed from real `keccak256`,
    not recalled from memory.
-2. **Block range is adaptive, not a fixed 10,000.** The target is the most
-   recent 10,000 blocks, but rate-limited providers (Alchemy's free tier
-   allows just **10 blocks** per unfiltered `eth_getLogs` call) get chunked
-   automatically, capped at 50 chunk requests so a tight limit doesn't turn
-   one scan into hundreds of round-trips. `lookbackBlocks` in the response
-   reports what was *actually* covered - e.g. `499`, not `10000`, when
-   chunking capped it short. Framed as "recent activity," never a full
-   audit.
+2. **Block range is adaptive, not a fixed 10,000** (see [Known
+   limitations](#known-limitations)) - `lookbackBlocks` in the response
+   reports what was *actually* covered.
 3. Amounts at/above `2**96 - 1` are flagged `isUnlimited` - covers both the
    classic `2**256-1` max approval and smaller-but-still-effectively-
    infinite patterns some routers use (a uint96 storage slot).
@@ -219,50 +281,23 @@ finding. All four `riskLevel` combinations spot-checked directly. Language
 throughout stays conservative ("elevated risk," "worth reviewing") per the
 project's requirement - signals, not certainty.
 
-### Reliability pass
+### Reliability
 
-- Every endpoint already caught its known failure modes (bad input -> 400,
+- Every endpoint catches its known failure modes (bad input -> 400,
   Alchemy/LLM/security-scan failures -> 502 with a plain-language `detail`);
-  main.py now also registers a catch-all handler for anything unexpected, so
+  `main.py` also registers a catch-all handler for anything unexpected, so
   a bug or dependency hiccup nobody anticipated still returns clean JSON
-  (`{"detail": "Something went wrong on our end - please try again."}`)
   instead of a raw stack trace - the real traceback still goes to the
   server log.
-- `get_latest_snapshot` (used by `/portfolio/analyze`) now fails soft like
-  `save_snapshot` already did - a DB read error falls through to a fresh
-  fetch instead of 500ing.
-- The AI gateway client had no request timeout (the SDK default is 10
-  minutes); it's now capped at 30s so a slow LLM call can't hang a demo.
-  Every other external call (Alchemy, Etherscan, Sourcify, Tavily, public
-  RPC) already had an explicit timeout from when it was built.
+- `get_latest_snapshot` (used by `/portfolio/analyze`) fails soft like
+  `save_snapshot` - a DB read error falls through to a fresh fetch instead
+  of 500ing.
+- The AI gateway client has a 30s request timeout (the SDK default is 10
+  minutes) so a slow LLM call can't hang the app. Every other external
+  call (Alchemy, Etherscan, Sourcify, Tavily, public RPC) has an explicit
+  timeout too.
 
-### Verify AI routing (Orbio)
-
-Before building on top of the AI agent, confirm the gateway key actually
-routes:
-
-```bash
-cd backend
-source .venv/bin/activate
-python scripts/test_ai_routing.py
-```
-
-This makes one chat-completion call with the OpenAI-compatible client,
-pointed at `ANTHROPIC_BASE_URL` with `ANTHROPIC_AUTH_TOKEN` as the bearer
-token, and prints the raw response. To try a different model, override it:
-`TEST_MODEL="<slug>" python scripts/test_ai_routing.py`.
-
-## 3. Frontend (React + Vite + Wagmi + RainbowKit)
-
-```bash
-cd frontend
-npm install
-cp .env.example .env   # add a WalletConnect project ID (cloud.walletconnect.com)
-npm run dev
-```
-
-Opens on http://localhost:5173. `src/viemClient.ts` sets up a viem public
-client for on-chain reads.
+### Frontend
 
 **Layout (`Header.tsx` + `App.tsx`):** a header (logo/name/tagline +
 RainbowKit connect button) is always visible. Disconnected, the page shows
@@ -284,9 +319,7 @@ normal), and generic success/error banners all pull from the same
 `--danger`/`--warning`/`--success`/`--neutral` tokens, in both light and
 dark mode. `components/MarkdownLite.tsx` renders the LLM's `**bold**`/`#
 heading` output as actual formatting instead of showing literal
-asterisks - found and fixed while checking the analysis output visually,
-not part of the original ask but the kind of thing that reads as broken in
-a demo.
+asterisks.
 
 Verified with real clicks against the real backend (headless Chrome +
 DevTools Protocol, not just code review): connect -> portfolio loads ->
