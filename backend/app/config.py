@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     alchemy_api_key: str = ""
     database_url: str = ""
+    model_tier: str = "draft"
 
 
 settings = Settings()

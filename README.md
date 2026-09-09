@@ -21,6 +21,7 @@ ANTHROPIC_AUTH_TOKEN=      # your Orbio key, used as the bearer token
 ANTHROPIC_API_KEY=         # leave empty unless told otherwise
 ALCHEMY_API_KEY=           # for on-chain reads
 DATABASE_URL=              # e.g. postgresql://postgres:postgres@localhost:5432/orblo
+MODEL_TIER=draft           # draft | production | premium - see backend/models.yaml
 ```
 
 `.env` is gitignored - never commit real secrets.
@@ -40,9 +41,27 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 - `GET /health` - liveness check, doesn't touch the database.
-- `GET /portfolio?address=0x...` - placeholder; returns a stub shape the
-  frontend can build against until on-chain reads + security analysis are
-  wired in.
+- `GET /portfolio?address=0x...` - calls the AI gateway with a placeholder
+  prompt (real on-chain reads + analysis logic aren't wired in yet) and
+  returns a stub shape the frontend can build against. Which model answers
+  is controlled by `MODEL_TIER`.
+
+### Model tiers
+
+`backend/models.yaml` maps three tiers to gateway model ids; `/portfolio`
+reads whichever tier `MODEL_TIER` in `.env` selects (default `draft`) and
+logs `tier=... model=...` plus token counts for every request, so spend is
+traceable per tier from the uvicorn log:
+
+| Tier | Model | Use for |
+|---|---|---|
+| `draft` | `anthropic/claude-haiku-4.5` | iterating on prompts/logic - the default, so nobody burns production spend by accident |
+| `production` | `anthropic/claude-sonnet-5` | the analysis output shown to users |
+| `premium` | `anthropic/claude-opus-5` | the final demo/polish pass only |
+
+Switch tiers by editing `MODEL_TIER` in `.env` - no code changes needed. An
+unrecognized tier name fails the request loudly (500 with the valid list)
+rather than silently falling back to a different tier.
 
 ### Verify AI routing (Orbio)
 

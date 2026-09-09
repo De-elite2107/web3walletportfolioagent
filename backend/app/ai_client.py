@@ -1,0 +1,21 @@
+"""OpenAI-compatible client for the AI gateway (ANTHROPIC_BASE_URL).
+
+Same routing shape as scripts/test_ai_routing.py: an OpenAI SDK client
+pointed at ANTHROPIC_BASE_URL with ANTHROPIC_AUTH_TOKEN as the bearer token.
+"""
+
+from functools import lru_cache
+
+from openai import OpenAI
+
+from app.config import settings
+
+
+def _normalized_base_url() -> str:
+    base_url = settings.anthropic_base_url.rstrip("/")
+    return base_url if base_url.endswith("/v1") else f"{base_url}/v1"
+
+
+@lru_cache(maxsize=1)
+def get_ai_client() -> OpenAI:
+    return OpenAI(base_url=_normalized_base_url(), api_key=settings.anthropic_auth_token)
