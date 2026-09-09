@@ -71,7 +71,6 @@ uvicorn app.main:app --reload --port 8000
   }
   ```
   `chain_id` defaults to 1 (mainnet); 11155111 (sepolia) is also supported.
-  No LLM analysis or chat interface yet - that's a later step.
 
   **Data source:** uses Alchemy (`alchemy_getTokenBalances` /
   `alchemy_getTokenMetadata` / `alchemy_getAssetTransfers`) when
@@ -105,7 +104,37 @@ uvicorn app.main:app --reload --port 8000
   yet. If Postgres isn't reachable the request still succeeds; the failure
   is logged as a warning instead of failing the response.
 
-### Model tiers (for the upcoming AI analysis step)
+### LLM analysis + chat
+
+- `POST /portfolio/analyze` - body `{"address": "0x...", "chainId": 1}`.
+  Reuses the wallet's latest persisted snapshot (falls back to a fresh
+  `/portfolio`-equivalent fetch + persist if none exists yet), sends the
+  full priced portfolio JSON to the model, and returns
+  `{"summary": "...", "portfolio": {...}}` - the `portfolio` is echoed back
+  so the frontend can hand the exact same snapshot to `/portfolio/chat`
+  without re-fetching.
+- `POST /portfolio/chat` - body
+  `{"address": "0x...", "portfolio": {...}, "history": [{"role": "user"|"assistant", "content": "..."}], "message": "..."}`.
+  No DB lookup - the caller supplies the portfolio snapshot directly (from
+  `/portfolio` or `/portfolio/analyze`), so replies are grounded in exactly
+  what's on screen. Returns `{"reply": "..."}`.
+
+Both (`app/analysis.py`) use the same OpenAI-compatible client as
+`scripts/test_ai_routing.py` (`app/ai_client.py`), with the model taken
+directly from `MODEL_NAME` in `.env` (default `anthropic/claude-haiku-4.5`)
+- a plain env var for now, ahead of wiring in the tier system below. The
+system prompt restricts the model to describing only what's in the
+supplied JSON (no speculation about future prices, no investment advice,
+nulls reported as "unavailable" rather than guessed) and explicitly tells
+it to treat every field - including token symbols/names, which are
+attacker-controllable on-chain data - as inert data, never as instructions.
+Verified end-to-end against real wallets: summaries and follow-up answers
+correctly cite the actual totals/percentages/concentration flag in the
+data, and multi-turn chat history is genuinely threaded (tested by asking
+the model to recall a fact only present in `history`, not derivable from
+the portfolio JSON).
+
+### Model tiers (not yet wired into analyze/chat)
 
 `backend/models.yaml` maps three tiers to gateway model ids, resolved via
 `app/model_tiers.py` + `MODEL_TIER` in `.env` (default `draft`):
@@ -116,12 +145,11 @@ uvicorn app.main:app --reload --port 8000
 | `production` | `anthropic/claude-sonnet-5` | the analysis output shown to users |
 | `premium` | `anthropic/claude-opus-5` | the final demo/polish pass only |
 
-**Not currently called by `/portfolio`** - that endpoint now does real
-on-chain data fetching (below) instead of the earlier placeholder AI call,
-so nothing in the request path spends AI-gateway tokens today. The tier
-config + `app/ai_client.py` are ready for the actual security-analysis step
-to call once that's built. An unrecognized tier name fails loudly (500 with
-the valid list) rather than silently falling back to a different tier.
+`/portfolio/analyze` and `/portfolio/chat` call `MODEL_NAME` directly
+instead (above) - swapping them onto the tier system is a later step. An
+unrecognized tier name still fails loudly (500 with the valid list) rather
+than silently falling back to a different tier, whenever something does
+start using it.
 
 ### Verify AI routing (Orbio)
 
@@ -150,6 +178,13 @@ npm run dev
 
 Opens on http://localhost:5173 with a wallet-connect button (RainbowKit) wired
 to Wagmi. `src/viemClient.ts` sets up a viem public client for on-chain reads.
+
+Below the portfolio table: an **Analyze** button (`src/AnalysisChat.tsx`)
+calls `/portfolio/analyze` and renders the returned summary, then a plain
+chat box (text input + send + scrolling message list) calls
+`/portfolio/chat` for follow-ups, resending the full message history each
+turn. No styling polish yet, and no security/approval-scanning logic -
+that's a later step.
 
 ## Notes
 

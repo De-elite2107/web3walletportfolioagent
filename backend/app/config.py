@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     alchemy_api_key: str = ""
     database_url: str = ""
     model_tier: str = "draft"
+    # Used directly by the analysis/chat endpoints for now, ahead of the
+    # full tier system - a cheap/fast model by default.
+    model_name: str = "anthropic/claude-haiku-4.5"
 
 
 settings = Settings()

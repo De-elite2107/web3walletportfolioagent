@@ -65,6 +65,20 @@ def fetch_portfolio(chain_id: int, address: str) -> dict:
     return add_valuation(result)
 
 
+def get_latest_snapshot(db: Session, wallet_address: str, chain_id: int) -> dict | None:
+    """Most recently persisted snapshot's raw_json for a wallet, or None if
+    there isn't one yet (e.g. /portfolio was never called for it, or the
+    earlier persistence attempt failed soft - see save_snapshot).
+    """
+    row = (
+        db.query(PortfolioSnapshot)
+        .filter(PortfolioSnapshot.wallet_address == wallet_address, PortfolioSnapshot.chain_id == chain_id)
+        .order_by(PortfolioSnapshot.fetched_at.desc())
+        .first()
+    )
+    return row.raw_json if row else None
+
+
 def save_snapshot(db: Session, wallet_address: str, chain_id: int, raw_json: dict) -> None:
     """Persist a fetched snapshot. Fails soft: logs and returns on any DB
     error (e.g. Postgres not running yet) rather than failing the request -

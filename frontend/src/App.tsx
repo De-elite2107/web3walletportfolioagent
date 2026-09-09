@@ -1,41 +1,10 @@
 import { useEffect, useState } from 'react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount, useChainId } from 'wagmi'
+import AnalysisChat from './AnalysisChat'
+import { API_BASE_URL } from './api'
+import type { PortfolioResponse } from './types'
 import './App.css'
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-
-interface Token {
-  symbol: string
-  contractAddress: string
-  balance: string
-  priceUsd: string | null
-  usdValue: string | null
-  allocationPercent: number | null
-}
-
-interface Transaction {
-  hash: string
-  from: string
-  to: string
-  value: number | string
-  timestamp: string
-}
-
-interface PortfolioResponse {
-  address: string
-  chainId: number
-  nativeBalance: string
-  nativePriceUsd: string | null
-  nativeUsdValue: string | null
-  nativeAllocationPercent: number | null
-  tokens: Token[]
-  recentTransactions: Transaction[]
-  totalUsdValue: string
-  concentrationRisk: boolean
-  concentrationToken: string | null
-  source?: string
-}
 
 function formatUsd(value: string | null): string {
   if (value === null) return '—'
@@ -195,6 +164,8 @@ function App() {
                     </tbody>
                   </table>
                 )}
+
+                <AnalysisChat address={address as string} chainId={chainId} portfolio={portfolio} />
               </>
             )}
           </div>
