@@ -16,8 +16,8 @@ frontend and a FastAPI backend.
 Copy `.env.example` to `.env` at the repo root and fill in the values:
 
 ```
-ANTHROPIC_BASE_URL=https://openrouter.ai/api
-ANTHROPIC_AUTH_TOKEN=      # your OpenRouter key, used as the bearer token
+ANTHROPIC_BASE_URL=https://api.orbio.so/api/v1
+ANTHROPIC_AUTH_TOKEN=      # your Orbio key, used as the bearer token
 ANTHROPIC_API_KEY=         # leave empty unless told otherwise
 ALCHEMY_API_KEY=           # for on-chain reads
 DATABASE_URL=              # e.g. postgresql://postgres:postgres@localhost:5432/orblo
@@ -44,9 +44,9 @@ uvicorn app.main:app --reload --port 8000
   frontend can build against until on-chain reads + security analysis are
   wired in.
 
-### Verify AI routing (OpenRouter)
+### Verify AI routing (Orbio)
 
-Before building on top of the AI agent, confirm the OpenRouter key actually
+Before building on top of the AI agent, confirm the gateway key actually
 routes:
 
 ```bash
@@ -57,9 +57,8 @@ python scripts/test_ai_routing.py
 
 This makes one chat-completion call with the OpenAI-compatible client,
 pointed at `ANTHROPIC_BASE_URL` with `ANTHROPIC_AUTH_TOKEN` as the bearer
-token, and prints the raw response. If the model in the script has been
-retired on OpenRouter, override it: `TEST_MODEL="<slug>" python scripts/test_ai_routing.py`
-(see https://openrouter.ai/models for current slugs).
+token, and prints the raw response. To try a different model, override it:
+`TEST_MODEL="<slug>" python scripts/test_ai_routing.py`.
 
 ## 3. Frontend (React + Vite + Wagmi + RainbowKit)
 
@@ -79,4 +78,4 @@ to Wagmi. `src/viemClient.ts` sets up a viem public client for on-chain reads.
   dev port) to call the API locally.
 - `ANTHROPIC_API_KEY` takes precedence over `ANTHROPIC_AUTH_TOKEN` in
   Anthropic's own SDKs - this project intentionally keeps it empty and uses
-  `ANTHROPIC_AUTH_TOKEN` for OpenRouter routing.
+  `ANTHROPIC_AUTH_TOKEN` for AI gateway routing.
