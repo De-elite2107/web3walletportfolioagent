@@ -1,26 +1,100 @@
 .app {
-  max-width: 720px;
+  max-width: 880px;
   margin: 0 auto;
-  padding: 2rem 1rem;
-  text-align: center;
-  font-family: system-ui, sans-serif;
+  padding: 0 16px 64px;
+  text-align: left;
+  font-family: var(--sans);
 }
 
+/* Header / nav */
 .app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 32px;
+}
+
+.app-header-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-logo {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.app-name {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.3px;
+}
+
+.app-tagline {
+  color: var(--text);
+  font-size: 14px;
+  margin: 2px 0 0;
+}
+
+/* Connect-wallet empty state */
+.connect-screen {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
-  margin-bottom: 2rem;
+  justify-content: center;
+  text-align: center;
+  gap: 16px;
+  padding: 80px 16px;
+  color: var(--text);
 }
 
-.app-header p {
-  color: #666;
+.connect-screen h2 {
   margin: 0;
 }
 
+/* Dashboard */
+.wallet-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.portfolio-value {
+  margin: 4px 0 20px;
+}
+
+.portfolio-value-label {
+  font-size: 13px;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.portfolio-value-amount {
+  font-size: 38px;
+  font-weight: 700;
+  color: var(--text-h);
+  letter-spacing: -0.5px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
 main code {
-  background: #f2f2f2;
+  background: var(--code-bg);
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
+  word-break: break-all;
 }

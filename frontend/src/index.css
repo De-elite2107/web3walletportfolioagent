@@ -11,6 +11,26 @@
   --shadow:
     rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
 
+  /* Semantic status colors, shared by every banner/badge in the app
+     (concentration warning, security-scan severities, error/success
+     states) so they all read as one consistent system. */
+  --success: #1a7f37;
+  --success-bg: #dafbe1;
+  --success-border: #8fd8a8;
+  --warning: #9a6700;
+  --warning-bg: #fff8c5;
+  --warning-border: #e0a800;
+  --danger: #cf222e;
+  --danger-bg: #ffebe9;
+  --danger-border: #f2929a;
+  --neutral-bg: #f6f6f7;
+  --neutral-border: #d8d7db;
+
+  --card-bg: #fff;
+  --skeleton-bg: #eceaed;
+  --skeleton-shine: rgba(255, 255, 255, 0.6);
+  --radius: 10px;
+
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
   --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
@@ -43,6 +63,22 @@
     --social-bg: rgba(47, 48, 58, 0.5);
     --shadow:
       rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+
+    --success: #56d364;
+    --success-bg: rgba(46, 160, 67, 0.15);
+    --success-border: rgba(86, 211, 100, 0.4);
+    --warning: #e3b341;
+    --warning-bg: rgba(187, 128, 9, 0.15);
+    --warning-border: rgba(227, 179, 65, 0.4);
+    --danger: #ff7b72;
+    --danger-bg: rgba(248, 81, 73, 0.15);
+    --danger-border: rgba(255, 123, 114, 0.4);
+    --neutral-bg: rgba(255, 255, 255, 0.04);
+    --neutral-border: var(--border);
+
+    --card-bg: #1c1d24;
+    --skeleton-bg: #24252d;
+    --skeleton-shine: rgba(255, 255, 255, 0.06);
   }
 
   #social .button-icon {
@@ -108,4 +144,209 @@ code {
   line-height: 135%;
   padding: 4px 8px;
   background: var(--code-bg);
+}
+
+/* ---- Shared UI primitives (buttons, cards, banners, badges, tables) ---- */
+
+button {
+  font: inherit;
+}
+
+.btn {
+  font-size: 15px;
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-h);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: opacity 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  text-align: left;
+}
+
+.section {
+  margin-top: 24px;
+}
+
+.section h2 {
+  font-size: 19px;
+  margin: 0 0 4px;
+}
+
+.section-hint {
+  color: var(--text);
+  font-size: 14px;
+  margin: 0 0 14px;
+}
+
+/* Status banners - one visual language shared by the concentration-risk
+   warning, the security-scan summary, and any inline success/error state. */
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid;
+  font-size: 15px;
+  text-align: left;
+  line-height: 145%;
+}
+
+.banner-icon {
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.banner-success {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success);
+}
+
+.banner-warning {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning);
+}
+
+.banner-danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.banner-neutral {
+  background: var(--neutral-bg);
+  border-color: var(--neutral-border);
+  color: var(--text);
+}
+
+/* Risk/severity badges - same three-color language as the banners above,
+   used in the security-scan findings table. */
+.badge {
+  display: inline-block;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.badge-high {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.badge-elevated {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning);
+}
+
+.badge-normal {
+  background: var(--neutral-bg);
+  border-color: var(--neutral-border);
+  color: var(--text);
+}
+
+.data-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 15px;
+}
+
+.data-table th,
+.data-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 10px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.data-table th {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Spinner */
+.spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: -0.15em;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 15px;
+  padding: 4px 0;
+}
+
+/* Skeleton loading placeholders */
+.skeleton {
+  background: linear-gradient(90deg, var(--skeleton-bg) 25%, var(--skeleton-shine) 37%, var(--skeleton-bg) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shine 1.4s ease infinite;
+  border-radius: 6px;
+  display: block;
+}
+
+@keyframes skeleton-shine {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
 }

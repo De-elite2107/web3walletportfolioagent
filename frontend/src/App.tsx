@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount, useChainId } from 'wagmi'
+import Header from './Header'
 import AnalysisChat from './AnalysisChat'
 import SecurityScan from './SecurityScan'
+import Banner from './components/Banner'
+import ErrorBanner, { toPlainMessage } from './components/ErrorBanner'
+import Skeleton from './components/Skeleton'
+import Spinner from './components/Spinner'
 import { API_BASE_URL } from './api'
 import type { PortfolioResponse } from './types'
 import './App.css'
@@ -15,6 +19,45 @@ function formatUsd(value: string | null): string {
 
 function formatPercent(value: number | null): string {
   return value === null ? '—' : `${value}%`
+}
+
+function HoldingsTableSkeleton() {
+  return (
+    <div className="table-scroll">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Asset</th>
+            <th>Balance</th>
+            <th>Price (USD)</th>
+            <th>USD Value</th>
+            <th>Allocation %</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[0, 1, 2].map((i) => (
+            <tr key={i}>
+              <td>
+                <Skeleton width="60px" />
+              </td>
+              <td>
+                <Skeleton width="80px" />
+              </td>
+              <td>
+                <Skeleton width="70px" />
+              </td>
+              <td>
+                <Skeleton width="70px" />
+              </td>
+              <td>
+                <Skeleton width="50px" />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
 function App() {
@@ -33,6 +76,7 @@ function App() {
     }
 
     const controller = new AbortController()
+    setPortfolio(null)
     setLoading(true)
     setError(null)
 
@@ -42,13 +86,14 @@ function App() {
       .then(async (res) => {
         if (!res.ok) {
           const body = await res.json().catch(() => null)
-          throw new Error(body?.detail || `Request failed with status ${res.status}`)
+          throw new Error(body?.detail ? String(body.detail) : `Request failed with status ${res.status}`)
         }
         return res.json() as Promise<PortfolioResponse>
       })
       .then(setPortfolio)
-      .catch((err: Error) => {
-        if (err.name !== 'AbortError') setError(err.message)
+      .catch((err: unknown) => {
+        const message = toPlainMessage(err)
+        if (message) setError(message)
       })
       .finally(() => setLoading(false))
 
@@ -57,118 +102,152 @@ function App() {
 
   return (
     <div className="app">
-      <header className="app-header">
-        <ConnectButton />
-        <h1>Orblo</h1>
-        <p>Wallet portfolio &amp; security analysis</p>
-      </header>
+      <Header />
 
       <main>
-        {!isConnected && <p>Connect a wallet to view your portfolio.</p>}
+        {!isConnected && (
+          <div className="connect-screen">
+            <h2>Connect a wallet to get started</h2>
+            <p>Orblo reads your on-chain holdings, prices them, and flags anything worth reviewing.</p>
+          </div>
+        )}
 
         {isConnected && (
           <div>
-            <p>
-              Connected as <code>{address}</code> on{' '}
-              <strong>{chain?.name ?? `chain ${chainId}`}</strong>
-            </p>
+            <div className="wallet-bar">
+              <span>
+                Connected as <code>{address}</code>
+              </span>
+              <span>{chain?.name ?? `Chain ${chainId}`}</span>
+            </div>
 
-            {loading && <p>Loading portfolio…</p>}
-            {error && <p style={{ color: 'crimson' }}>Error: {error}</p>}
-
-            {portfolio && (
-              <>
-                {portfolio.concentrationRisk && (
-                  <div
-                    style={{
-                      background: '#fff3cd',
-                      border: '1px solid #e0a800',
-                      color: '#664d03',
-                      padding: '0.75rem 1rem',
-                      borderRadius: 4,
-                      marginBottom: '1rem',
-                      textAlign: 'left',
-                    }}
-                  >
-                    ⚠️ Concentration risk: <strong>{portfolio.concentrationToken}</strong> makes up more
-                    than 50% of this wallet's total value.
+            {loading && (
+              <div className="section">
+                <h2>Portfolio</h2>
+                <div className="card">
+                  <div className="loading-line" style={{ marginBottom: '0.75rem' }}>
+                    <Spinner /> Loading portfolio…
                   </div>
-                )}
+                  <div className="portfolio-value">
+                    <div className="portfolio-value-label">Total portfolio value</div>
+                    <Skeleton width="220px" height="2.4rem" />
+                  </div>
+                  <HoldingsTableSkeleton />
+                </div>
+              </div>
+            )}
 
-                <div style={{ margin: '1rem 0' }}>
-                  <div style={{ fontSize: '0.9rem', color: '#666' }}>Total portfolio value</div>
-                  <div style={{ fontSize: '2rem', fontWeight: 700 }}>{formatUsd(portfolio.totalUsdValue)}</div>
+            {!loading && error && (
+              <div className="section">
+                <h2>Portfolio</h2>
+                <ErrorBanner message={error} />
+              </div>
+            )}
+
+            {!loading && !error && portfolio && (
+              <>
+                <div className="section">
+                  <h2>Portfolio</h2>
+                  {portfolio.concentrationRisk && (
+                    <div style={{ marginBottom: '1rem' }}>
+                      <Banner variant="warning">
+                        Concentration risk: <strong>{portfolio.concentrationToken}</strong> makes up more than
+                        50% of this wallet's total value.
+                      </Banner>
+                    </div>
+                  )}
+
+                  <div className="card">
+                    <div className="portfolio-value">
+                      <div className="portfolio-value-label">Total portfolio value</div>
+                      <div className="portfolio-value-amount">{formatUsd(portfolio.totalUsdValue)}</div>
+                    </div>
+
+                    <div className="table-scroll">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Asset</th>
+                            <th>Balance</th>
+                            <th>Price (USD)</th>
+                            <th>USD Value</th>
+                            <th>Allocation %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td>ETH (native)</td>
+                            <td>{portfolio.nativeBalance}</td>
+                            <td>{formatUsd(portfolio.nativePriceUsd)}</td>
+                            <td>{formatUsd(portfolio.nativeUsdValue)}</td>
+                            <td>{formatPercent(portfolio.nativeAllocationPercent)}</td>
+                          </tr>
+                          {portfolio.tokens.map((t) => (
+                            <tr key={t.contractAddress}>
+                              <td>{t.symbol}</td>
+                              <td>{t.balance}</td>
+                              <td>{formatUsd(t.priceUsd)}</td>
+                              <td>{formatUsd(t.usdValue)}</td>
+                              <td>{formatPercent(t.allocationPercent)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
 
-                <table cellPadding={6} style={{ borderCollapse: 'collapse', width: '100%', border: '1px solid #ccc' }}>
-                  <thead>
-                    <tr style={{ border: '1px solid #ccc', textAlign: 'left' }}>
-                      <th style={{ border: '1px solid #ccc' }}>Asset</th>
-                      <th style={{ border: '1px solid #ccc' }}>Balance</th>
-                      <th style={{ border: '1px solid #ccc' }}>Price (USD)</th>
-                      <th style={{ border: '1px solid #ccc' }}>USD Value</th>
-                      <th style={{ border: '1px solid #ccc' }}>Allocation %</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr style={{ border: '1px solid #ccc' }}>
-                      <td style={{ border: '1px solid #ccc' }}>ETH (native)</td>
-                      <td style={{ border: '1px solid #ccc' }}>{portfolio.nativeBalance}</td>
-                      <td style={{ border: '1px solid #ccc' }}>{formatUsd(portfolio.nativePriceUsd)}</td>
-                      <td style={{ border: '1px solid #ccc' }}>{formatUsd(portfolio.nativeUsdValue)}</td>
-                      <td style={{ border: '1px solid #ccc' }}>{formatPercent(portfolio.nativeAllocationPercent)}</td>
-                    </tr>
-                    {portfolio.tokens.map((t) => (
-                      <tr key={t.contractAddress} style={{ border: '1px solid #ccc' }}>
-                        <td style={{ border: '1px solid #ccc' }}>{t.symbol}</td>
-                        <td style={{ border: '1px solid #ccc' }}>{t.balance}</td>
-                        <td style={{ border: '1px solid #ccc' }}>{formatUsd(t.priceUsd)}</td>
-                        <td style={{ border: '1px solid #ccc' }}>{formatUsd(t.usdValue)}</td>
-                        <td style={{ border: '1px solid #ccc' }}>{formatPercent(t.allocationPercent)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="section">
+                  <h2>Recent Transactions</h2>
+                  <div className="card">
+                    {portfolio.recentTransactions.length === 0 ? (
+                      <p className="section-hint">
+                        None found{portfolio.source === 'public_rpc' ? ' (requires an Alchemy key)' : ''}.
+                      </p>
+                    ) : (
+                      <div className="table-scroll">
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th>Hash</th>
+                              <th>From</th>
+                              <th>To</th>
+                              <th>Value</th>
+                              <th>Timestamp</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {portfolio.recentTransactions.map((tx) => (
+                              <tr key={tx.hash}>
+                                <td>
+                                  {tx.hash.slice(0, 10)}…{tx.hash.slice(-6)}
+                                </td>
+                                <td>
+                                  {tx.from.slice(0, 6)}…{tx.from.slice(-4)}
+                                </td>
+                                <td>
+                                  {tx.to.slice(0, 6)}…{tx.to.slice(-4)}
+                                </td>
+                                <td>{tx.value}</td>
+                                <td>{tx.timestamp}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-                <h3 style={{ marginTop: '2rem' }}>Recent Transactions</h3>
-                {portfolio.recentTransactions.length === 0 ? (
-                  <p style={{ color: '#666' }}>
-                    None found{portfolio.source === 'public_rpc' ? ' (requires an Alchemy key)' : ''}.
-                  </p>
-                ) : (
-                  <table cellPadding={6} style={{ borderCollapse: 'collapse', width: '100%', border: '1px solid #ccc' }}>
-                    <thead>
-                      <tr style={{ border: '1px solid #ccc', textAlign: 'left' }}>
-                        <th style={{ border: '1px solid #ccc' }}>Hash</th>
-                        <th style={{ border: '1px solid #ccc' }}>From</th>
-                        <th style={{ border: '1px solid #ccc' }}>To</th>
-                        <th style={{ border: '1px solid #ccc' }}>Value</th>
-                        <th style={{ border: '1px solid #ccc' }}>Timestamp</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {portfolio.recentTransactions.map((tx) => (
-                        <tr key={tx.hash} style={{ border: '1px solid #ccc' }}>
-                          <td style={{ border: '1px solid #ccc' }}>
-                            {tx.hash.slice(0, 10)}…{tx.hash.slice(-6)}
-                          </td>
-                          <td style={{ border: '1px solid #ccc' }}>
-                            {tx.from.slice(0, 6)}…{tx.from.slice(-4)}
-                          </td>
-                          <td style={{ border: '1px solid #ccc' }}>
-                            {tx.to.slice(0, 6)}…{tx.to.slice(-4)}
-                          </td>
-                          <td style={{ border: '1px solid #ccc' }}>{tx.value}</td>
-                          <td style={{ border: '1px solid #ccc' }}>{tx.timestamp}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                <div className="section">
+                  <h2>AI Analysis</h2>
+                  <AnalysisChat address={address as string} chainId={chainId} portfolio={portfolio} />
+                </div>
 
-                <AnalysisChat address={address as string} chainId={chainId} portfolio={portfolio} />
-
-                <SecurityScan address={address as string} chainId={chainId} />
+                <div className="section">
+                  <h2>Security Scan</h2>
+                  <SecurityScan address={address as string} chainId={chainId} />
+                </div>
               </>
             )}
           </div>

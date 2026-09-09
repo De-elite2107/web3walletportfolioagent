@@ -67,16 +67,26 @@ def fetch_portfolio(chain_id: int, address: str) -> dict:
 
 def get_latest_snapshot(db: Session, wallet_address: str, chain_id: int) -> dict | None:
     """Most recently persisted snapshot's raw_json for a wallet, or None if
-    there isn't one yet (e.g. /portfolio was never called for it, or the
-    earlier persistence attempt failed soft - see save_snapshot).
+    there isn't one yet (e.g. /portfolio was never called for it, the
+    earlier persistence attempt failed soft - see save_snapshot - or the DB
+    is unreachable right now). The caller treats None as "fetch fresh
+    instead," so a DB read failure degrades to a slower response rather
+    than an error.
     """
-    row = (
-        db.query(PortfolioSnapshot)
-        .filter(PortfolioSnapshot.wallet_address == wallet_address, PortfolioSnapshot.chain_id == chain_id)
-        .order_by(PortfolioSnapshot.fetched_at.desc())
-        .first()
-    )
-    return row.raw_json if row else None
+    try:
+        row = (
+            db.query(PortfolioSnapshot)
+            .filter(PortfolioSnapshot.wallet_address == wallet_address, PortfolioSnapshot.chain_id == chain_id)
+            .order_by(PortfolioSnapshot.fetched_at.desc())
+            .first()
+        )
+        return row.raw_json if row else None
+    except SQLAlchemyError as e:
+        db.rollback()  # reset the session so a later query/write in this request can still work
+        logger.warning(
+            "failed to read latest snapshot for %s on chain %s: %s", wallet_address, chain_id, e
+        )
+        return None
 
 
 def save_snapshot(db: Session, wallet_address: str, chain_id: int, raw_json: dict) -> None:

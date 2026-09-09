@@ -1,7 +1,8 @@
 import logging
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.alchemy_client import AlchemyError
@@ -27,6 +28,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Last-resort safety net: every endpoint already catches its known
+    failure modes (see _fetch_and_persist etc.) and returns a clean
+    HTTPException, but this guarantees that *any* other bug or dependency
+    failure still returns clean JSON instead of a raw stack trace. The full
+    traceback goes to the server log, never to the client.
+    """
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Something went wrong on our end - please try again."})
 
 
 @app.on_event("startup")

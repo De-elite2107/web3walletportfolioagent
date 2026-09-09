@@ -1,4 +1,8 @@
 import { useState } from 'react'
+import ErrorBanner, { toPlainMessage } from './components/ErrorBanner'
+import MarkdownLite from './components/MarkdownLite'
+import Spinner from './components/Spinner'
+import Skeleton from './components/Skeleton'
 import { API_BASE_URL } from './api'
 import type { PortfolioResponse } from './types'
 
@@ -48,8 +52,9 @@ export default function AnalysisChat({
       setSummary(data.summary)
       setAnalyzedPortfolio(data.portfolio)
       setMessages([])
+      setChatError(null)
     } catch (err) {
-      setAnalyzeError(err instanceof Error ? err.message : String(err))
+      setAnalyzeError(toPlainMessage(err))
     } finally {
       setAnalyzing(false)
     }
@@ -75,61 +80,91 @@ export default function AnalysisChat({
       )
       setMessages([...nextMessages, { role: 'assistant', content: data.reply }])
     } catch (err) {
-      setChatError(err instanceof Error ? err.message : String(err))
+      setChatError(toPlainMessage(err))
     } finally {
       setChatLoading(false)
     }
   }
 
   return (
-    <div style={{ marginTop: '2rem', textAlign: 'left' }}>
-      <button onClick={handleAnalyze} disabled={analyzing}>
-        {analyzing ? 'Analyzing…' : summary ? 'Re-analyze' : 'Analyze'}
+    <div className="card">
+      <button className="btn btn-primary" onClick={handleAnalyze} disabled={analyzing}>
+        {analyzing && <Spinner />}
+        {analyzing ? 'Analyzing…' : summary ? 'Re-analyze' : 'Run Analysis'}
       </button>
-      {analyzeError && <p style={{ color: 'crimson' }}>Error: {analyzeError}</p>}
+
+      {analyzing && !summary && (
+        <div style={{ marginTop: '1rem' }}>
+          <Skeleton height="1em" />
+          <div style={{ height: 8 }} />
+          <Skeleton height="1em" width="90%" />
+          <div style={{ height: 8 }} />
+          <Skeleton height="1em" width="75%" />
+        </div>
+      )}
+
+      {analyzeError && (
+        <div style={{ marginTop: '1rem' }}>
+          <ErrorBanner message={analyzeError} />
+        </div>
+      )}
 
       {summary && (
         <>
-          <h3>Analysis</h3>
-          <p style={{ whiteSpace: 'pre-wrap' }}>{summary}</p>
+          <div style={{ marginTop: '1rem' }}>
+            <MarkdownLite text={summary} />
+          </div>
 
-          <h3>Ask a follow-up</h3>
+          <h3 style={{ fontSize: '15px', marginTop: '1.5rem', marginBottom: '0.5rem' }}>Ask a follow-up</h3>
           <div
             style={{
-              border: '1px solid #ccc',
-              borderRadius: 4,
+              border: '1px solid var(--border)',
+              borderRadius: 8,
               padding: '0.75rem',
               maxHeight: 300,
               overflowY: 'auto',
               marginBottom: '0.5rem',
+              background: 'var(--bg)',
             }}
           >
-            {messages.length === 0 && <p style={{ color: '#666' }}>No messages yet - ask something below.</p>}
+            {messages.length === 0 && <p className="section-hint">No messages yet - ask something below.</p>}
             {messages.map((m, i) => (
-              <p key={i}>
-                <strong>{m.role === 'user' ? 'You' : 'Orblo'}:</strong> {m.content}
-              </p>
+              <div key={i} style={{ margin: '0 0 8px' }}>
+                <strong>{m.role === 'user' ? 'You' : 'Orblo'}:</strong>{' '}
+                {m.role === 'assistant' ? <MarkdownLite text={m.content} /> : m.content}
+              </div>
             ))}
-            {chatLoading && <p style={{ color: '#666' }}>Thinking…</p>}
+            {chatLoading && (
+              <div className="loading-line">
+                <Spinner /> Thinking…
+              </div>
+            )}
           </div>
-          {chatError && <p style={{ color: 'crimson' }}>Error: {chatError}</p>}
+          {chatError && <ErrorBanner message={chatError} />}
 
           <form
             onSubmit={(e) => {
               e.preventDefault()
               handleSend()
             }}
-            style={{ display: 'flex', gap: '0.5rem' }}
+            style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}
           >
             <input
               type="text"
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               placeholder="e.g. why is my WETH allocation so high?"
-              style={{ flex: 1, padding: '0.5rem' }}
+              style={{
+                flex: 1,
+                padding: '10px 12px',
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+                background: 'var(--bg)',
+                color: 'var(--text-h)',
+              }}
               disabled={chatLoading}
             />
-            <button type="submit" disabled={chatLoading || !chatInput.trim()}>
+            <button type="submit" className="btn btn-primary" disabled={chatLoading || !chatInput.trim()}>
               Send
             </button>
           </form>

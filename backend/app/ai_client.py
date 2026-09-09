@@ -18,4 +18,6 @@ def _normalized_base_url() -> str:
 
 @lru_cache(maxsize=1)
 def get_ai_client() -> OpenAI:
-    return OpenAI(base_url=_normalized_base_url(), api_key=settings.anthropic_auth_token)
+    # The SDK's default timeout is 10 minutes - far too long for a demo path
+    # where one slow LLM call shouldn't hang the whole request.
+    return OpenAI(base_url=_normalized_base_url(), api_key=settings.anthropic_auth_token, timeout=30.0)

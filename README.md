@@ -219,6 +219,23 @@ finding. All four `riskLevel` combinations spot-checked directly. Language
 throughout stays conservative ("elevated risk," "worth reviewing") per the
 project's requirement - signals, not certainty.
 
+### Reliability pass
+
+- Every endpoint already caught its known failure modes (bad input -> 400,
+  Alchemy/LLM/security-scan failures -> 502 with a plain-language `detail`);
+  main.py now also registers a catch-all handler for anything unexpected, so
+  a bug or dependency hiccup nobody anticipated still returns clean JSON
+  (`{"detail": "Something went wrong on our end - please try again."}`)
+  instead of a raw stack trace - the real traceback still goes to the
+  server log.
+- `get_latest_snapshot` (used by `/portfolio/analyze`) now fails soft like
+  `save_snapshot` already did - a DB read error falls through to a fresh
+  fetch instead of 500ing.
+- The AI gateway client had no request timeout (the SDK default is 10
+  minutes); it's now capped at 30s so a slow LLM call can't hang a demo.
+  Every other external call (Alchemy, Etherscan, Sourcify, Tavily, public
+  RPC) already had an explicit timeout from when it was built.
+
 ### Verify AI routing (Orbio)
 
 Before building on top of the AI agent, confirm the gateway key actually
@@ -244,17 +261,38 @@ cp .env.example .env   # add a WalletConnect project ID (cloud.walletconnect.com
 npm run dev
 ```
 
-Opens on http://localhost:5173 with a wallet-connect button (RainbowKit) wired
-to Wagmi. `src/viemClient.ts` sets up a viem public client for on-chain reads.
+Opens on http://localhost:5173. `src/viemClient.ts` sets up a viem public
+client for on-chain reads.
 
-Below the portfolio table: an **Analyze** button (`src/AnalysisChat.tsx`)
-calls `/portfolio/analyze` and renders the returned summary, then a plain
-chat box (text input + send + scrolling message list) calls
-`/portfolio/chat` for follow-ups, resending the full message history each
-turn. Below that, a **Security Scan** section (`src/SecurityScan.tsx`)
-calls `/portfolio/security-scan` and lists findings sorted highest-risk
-first, color-coded (red = high, yellow = elevated, neutral = normal), with
-the `overallRiskSummary` as a banner on top. No styling polish yet.
+**Layout (`Header.tsx` + `App.tsx`):** a header (logo/name/tagline +
+RainbowKit connect button) is always visible. Disconnected, the page shows
+just a connect prompt. Connected, sections run top to bottom: Portfolio
+(value + holdings table) -> Recent Transactions -> AI Analysis
+(`AnalysisChat.tsx`: an Analyze button renders the summary, a chat box
+below it handles follow-ups, resending full history each turn) -> Security
+Scan (`SecurityScan.tsx`: findings sorted highest-risk-first). All four
+async actions (portfolio fetch, analyze, chat, security scan) have their
+own loading state (spinner + skeleton placeholders, not a blank screen)
+and error state (`components/ErrorBanner.tsx` - the backend's own
+plain-language `detail` message, or "Could not reach the server" for a
+network-level failure) instead of a silent console-only failure.
+
+**Design system (`index.css`):** one set of CSS variables drives every
+status color in the app - the portfolio concentration-risk banner, the
+security-scan severity badges (red/yellow/neutral for high/elevated/
+normal), and generic success/error banners all pull from the same
+`--danger`/`--warning`/`--success`/`--neutral` tokens, in both light and
+dark mode. `components/MarkdownLite.tsx` renders the LLM's `**bold**`/`#
+heading` output as actual formatting instead of showing literal
+asterisks - found and fixed while checking the analysis output visually,
+not part of the original ask but the kind of thing that reads as broken in
+a demo.
+
+Verified with real clicks against the real backend (headless Chrome +
+DevTools Protocol, not just code review): connect -> portfolio loads ->
+Analyze produces a formatted summary -> chat follow-up works -> Security
+Scan runs and renders color-coded findings - the whole sequence, screenshot
+at each step, no console errors.
 
 ## Notes
 
