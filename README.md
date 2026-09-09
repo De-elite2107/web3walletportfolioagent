@@ -34,10 +34,13 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# start Postgres however you prefer, then create the DB, e.g.:
-#   createdb orblo
-# make sure DATABASE_URL in .env matches your actual Postgres user/password -
-# the table is created automatically on startup once it can connect.
+# Postgres: this machine's system-wide instance on port 5432 belongs to
+# other, unrelated projects (no credentials for it) - this project runs its
+# own dedicated container instead:
+#   docker run -d --name orblo-postgres -e POSTGRES_USER=postgres \
+#     -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=orblo -p 5433:5432 postgres:16-alpine
+# DATABASE_URL in .env already points at it (localhost:5433). Tables are
+# created automatically on startup once it can connect.
 
 uvicorn app.main:app --reload --port 8000
 ```
