@@ -1,13 +1,17 @@
 import logging
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 
-from app.ai_client import get_ai_client
-from app.model_tiers import current_tier
+from app.alchemy_client import AlchemyError
+from app.chains import CHAINS
+from app.database import engine, get_db
+from app.eth_utils import is_valid_address
+from app.portfolio import fetch_portfolio, save_snapshot
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-logger = logging.getLogger("orblo.portfolio")
+logger = logging.getLogger("orblo.main")
 
 app = FastAPI(title="Orblo API", version="0.1.0")
 
@@ -21,6 +25,18 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+def create_tables():
+    # Import registers PortfolioSnapshot on Base.metadata before create_all.
+    from app import models  # noqa: F401
+    from app.database import Base
+
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:  # noqa: BLE001 - don't crash startup if Postgres isn't up yet
+        logger.warning("could not create tables (is Postgres running / DATABASE_URL correct?): %s", e)
+
+
 @app.get("/health")
 def health():
     """Basic liveness check - does not touch the database."""
@@ -28,55 +44,39 @@ def health():
 
 
 @app.get("/portfolio")
-def get_portfolio(address: str | None = None):
-    """Portfolio + security analysis endpoint.
+def get_portfolio(
+    address: str = Query(..., description="Wallet address, e.g. 0x..."),
+    chain_id: int = Query(1, description="Chain ID - 1 (mainnet) or 11155111 (sepolia)"),
+    db: Session = Depends(get_db),
+):
+    """Fetch native balance, ERC-20 balances, and the 20 most recent
+    transactions for a wallet, then persist the snapshot to Postgres.
 
-    On-chain balance/position fetching (viem/Alchemy) isn't wired in yet, so
-    this calls the AI gateway with a placeholder prompt to prove the
-    tier -> model wiring end to end. The model used comes from MODEL_TIER in
-    .env (draft/production/premium, see models.yaml) - swap tiers there
-    without touching this code.
+    Uses Alchemy if ALCHEMY_API_KEY is set, otherwise a public-RPC fallback
+    with reduced functionality (see app/rpc_fallback.py).
     """
-    try:
-        tier = current_tier()
-    except ValueError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not is_valid_address(address):
+        raise HTTPException(status_code=400, detail=f"{address!r} is not a valid EVM address")
+    if chain_id not in CHAINS:
+        supported = ", ".join(str(c) for c in CHAINS)
+        raise HTTPException(status_code=400, detail=f"Unsupported chain_id {chain_id} - expected one of: {supported}")
 
-    client = get_ai_client()
-    response = client.chat.completions.create(
-        model=tier.model,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a wallet security analysis assistant. Given a "
-                    "wallet address with no on-chain data available yet, "
-                    "reply with one short sentence noting that analysis is "
-                    "pending real portfolio data."
-                ),
-            },
-            {"role": "user", "content": f"Wallet address: {address or '(none provided)'}"},
-        ],
-        max_tokens=64,
-    )
-    analysis = response.choices[0].message.content
+    try:
+        result = fetch_portfolio(chain_id, address)
+    except AlchemyError as e:
+        raise HTTPException(status_code=502, detail=f"Alchemy request failed: {e}") from e
+    except Exception as e:  # noqa: BLE001 - surface public-RPC failures the same way
+        raise HTTPException(status_code=502, detail=f"On-chain read failed: {e}") from e
 
     logger.info(
-        "portfolio analysis request tier=%s model=%s address=%s prompt_tokens=%s completion_tokens=%s",
-        tier.name,
-        tier.model,
+        "portfolio fetched address=%s chain_id=%s source=%s tokens=%d transactions=%d",
         address,
-        response.usage.prompt_tokens if response.usage else None,
-        response.usage.completion_tokens if response.usage else None,
+        chain_id,
+        result["source"],
+        len(result["tokens"]),
+        len(result["recentTransactions"]),
     )
 
-    return {
-        "address": address,
-        "tokens": [],
-        "nfts": [],
-        "risk_flags": [],
-        "analysis": analysis,
-        "model_tier": tier.name,
-        "model": tier.model,
-        "note": "on-chain data not yet wired in - analysis text is a placeholder call",
-    }
+    save_snapshot(db, wallet_address=address, chain_id=chain_id, raw_json=result)
+
+    return result

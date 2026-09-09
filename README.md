@@ -36,22 +36,48 @@ pip install -r requirements.txt
 
 # start Postgres however you prefer, then create the DB, e.g.:
 #   createdb orblo
+# make sure DATABASE_URL in .env matches your actual Postgres user/password -
+# the table is created automatically on startup once it can connect.
 
 uvicorn app.main:app --reload --port 8000
 ```
 
 - `GET /health` - liveness check, doesn't touch the database.
-- `GET /portfolio?address=0x...` - calls the AI gateway with a placeholder
-  prompt (real on-chain reads + analysis logic aren't wired in yet) and
-  returns a stub shape the frontend can build against. Which model answers
-  is controlled by `MODEL_TIER`.
+- `GET /portfolio?address=0x...&chain_id=1` - fetches native balance, ERC-20
+  balances, and the 20 most recent transactions for a wallet, persists the
+  snapshot to Postgres, and returns:
+  ```json
+  {
+    "address": "0x...",
+    "chainId": 1,
+    "nativeBalance": "6.7121...",
+    "tokens": [{"symbol": "USDC", "contractAddress": "0x...", "balance": "37.19"}],
+    "recentTransactions": [{"hash": "0x...", "from": "0x...", "to": "0x...", "value": 1.5, "timestamp": "2026-..."}],
+    "source": "alchemy"
+  }
+  ```
+  `chain_id` defaults to 1 (mainnet); 11155111 (sepolia) is also supported.
+  No price/valuation logic yet - that's a later step.
 
-### Model tiers
+  **Data source:** uses Alchemy (`alchemy_getTokenBalances` /
+  `alchemy_getTokenMetadata` / `alchemy_getAssetTransfers`) when
+  `ALCHEMY_API_KEY` is set (`source: "alchemy"`). Without a key, it falls
+  back to a public RPC (`source: "public_rpc"`) with two limitations: only
+  a fixed list of well-known mainnet tokens is checked (USDC/USDT/DAI/WETH -
+  see `backend/app/chains.py`, no fallback list for Sepolia), and
+  `recentTransactions` always comes back empty, since plain JSON-RPC has no
+  address-activity index to query.
 
-`backend/models.yaml` maps three tiers to gateway model ids; `/portfolio`
-reads whichever tier `MODEL_TIER` in `.env` selects (default `draft`) and
-logs `tier=... model=...` plus token counts for every request, so spend is
-traceable per tier from the uvicorn log:
+  **Persistence:** every fetch is saved to the `portfolio_snapshots` table
+  (`wallet_address`, `chain_id`, `fetched_at`, `raw_json`) - just storage for
+  now, no change-over-time view built on it yet. If Postgres isn't reachable
+  the request still succeeds; the failure is logged as a warning instead of
+  failing the response.
+
+### Model tiers (for the upcoming AI analysis step)
+
+`backend/models.yaml` maps three tiers to gateway model ids, resolved via
+`app/model_tiers.py` + `MODEL_TIER` in `.env` (default `draft`):
 
 | Tier | Model | Use for |
 |---|---|---|
@@ -59,9 +85,12 @@ traceable per tier from the uvicorn log:
 | `production` | `anthropic/claude-sonnet-5` | the analysis output shown to users |
 | `premium` | `anthropic/claude-opus-5` | the final demo/polish pass only |
 
-Switch tiers by editing `MODEL_TIER` in `.env` - no code changes needed. An
-unrecognized tier name fails the request loudly (500 with the valid list)
-rather than silently falling back to a different tier.
+**Not currently called by `/portfolio`** - that endpoint now does real
+on-chain data fetching (below) instead of the earlier placeholder AI call,
+so nothing in the request path spends AI-gateway tokens today. The tier
+config + `app/ai_client.py` are ready for the actual security-analysis step
+to call once that's built. An unrecognized tier name fails loudly (500 with
+the valid list) rather than silently falling back to a different tier.
 
 ### Verify AI routing (Orbio)
 
