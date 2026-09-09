@@ -29,3 +29,24 @@ export interface PortfolioResponse {
   concentrationToken: string | null
   source?: string
 }
+
+export type RiskLevel = 'high' | 'elevated' | 'normal'
+
+export interface SecurityFinding {
+  token: string
+  tokenAddress: string
+  spender: string
+  amount: string
+  isUnlimited: boolean
+  isVerified: boolean | null
+  riskLevel: RiskLevel
+  note: string
+}
+
+export interface SecurityScanResponse {
+  address: string
+  chainId: number
+  lookbackBlocks: number
+  approvals: SecurityFinding[]
+  overallRiskSummary: string
+}

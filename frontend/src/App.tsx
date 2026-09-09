@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount, useChainId } from 'wagmi'
 import AnalysisChat from './AnalysisChat'
+import SecurityScan from './SecurityScan'
 import { API_BASE_URL } from './api'
 import type { PortfolioResponse } from './types'
 import './App.css'
@@ -166,6 +167,8 @@ function App() {
                 )}
 
                 <AnalysisChat address={address as string} chainId={chainId} portfolio={portfolio} />
+
+                <SecurityScan address={address as string} chainId={chainId} />
               </>
             )}
           </div>

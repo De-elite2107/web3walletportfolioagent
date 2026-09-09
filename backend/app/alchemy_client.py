@@ -65,6 +65,20 @@ def get_native_balance_wei(chain_id: int, address: str, api_key: str) -> int:
     return int(result, 16)
 
 
+def get_token_metadata(chain_id: int, api_key: str, contract_addresses: list[str]) -> dict[str, dict]:
+    """symbol/decimals for a list of ERC-20 contracts, in one batched round-trip.
+
+    Returns {contract_address (as given): metadata_dict}; a contract that
+    fails to resolve just gets an empty dict, not an exception - callers
+    treat missing symbol/decimals as "unknown", not a hard failure.
+    """
+    if not contract_addresses:
+        return {}
+    url = _url(chain_id, api_key)
+    results = _batch_call(url, [("alchemy_getTokenMetadata", [addr]) for addr in contract_addresses])
+    return {addr: (r.get("result") or {}) for addr, r in zip(contract_addresses, results)}
+
+
 def get_erc20_balances(chain_id: int, address: str, api_key: str) -> list[dict]:
     """Auto-discovered ERC-20 balances for `address` (non-zero only)."""
     url = _url(chain_id, api_key)
@@ -75,11 +89,11 @@ def get_erc20_balances(chain_id: int, address: str, api_key: str) -> list[dict]:
 
     # One batched round-trip for metadata (symbol/decimals) instead of one
     # request per token - Alchemy supports standard JSON-RPC batching.
-    metadata = _batch_call(url, [("alchemy_getTokenMetadata", [b["contractAddress"]]) for b in nonzero])
+    metadata = get_token_metadata(chain_id, api_key, [b["contractAddress"] for b in nonzero])
 
     tokens = []
-    for balance, meta in zip(nonzero, metadata):
-        info = meta.get("result") or {}
+    for balance in nonzero:
+        info = metadata.get(balance["contractAddress"], {})
         decimals = info.get("decimals")
         raw = int(balance["tokenBalance"], 16)
         adjusted = Decimal(raw) / (Decimal(10) ** decimals) if decimals is not None else Decimal(raw)

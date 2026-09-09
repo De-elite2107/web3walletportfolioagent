@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     anthropic_auth_token: str = ""
     anthropic_api_key: str = ""
     alchemy_api_key: str = ""
+    etherscan_api_key: str = ""
+    tavily_api_key: str = ""
     database_url: str = ""
     model_tier: str = "draft"
     # Used directly by the analysis/chat endpoints for now, ahead of the

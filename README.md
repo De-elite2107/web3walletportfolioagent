@@ -20,6 +20,8 @@ ANTHROPIC_BASE_URL=https://api.orbio.so/api/v1
 ANTHROPIC_AUTH_TOKEN=      # your Orbio key, used as the bearer token
 ANTHROPIC_API_KEY=         # leave empty unless told otherwise
 ALCHEMY_API_KEY=           # for on-chain reads
+ETHERSCAN_API_KEY=         # security scan: contract verification (primary; Sourcify is the no-key fallback)
+TAVILY_API_KEY=            # security scan: known-exploit/scam web search
 DATABASE_URL=              # e.g. postgresql://postgres:postgres@localhost:5432/orblo
 MODEL_TIER=draft           # draft | production | premium - see backend/models.yaml
 ```
@@ -151,6 +153,72 @@ unrecognized tier name still fails loudly (500 with the valid list) rather
 than silently falling back to a different tier, whenever something does
 start using it.
 
+### Security scan (token approvals)
+
+`GET /portfolio/security-scan?address=0x...&chain_id=1` - which contracts
+currently hold ERC-20 spending approval for this wallet, how much, and how
+risky that looks. Persists to `security_scan_snapshots` (same pattern as
+`portfolio_snapshots`). Returns:
+```json
+{
+  "address": "0x...", "chainId": 1, "lookbackBlocks": 499,
+  "approvals": [
+    {
+      "token": "PSWAP", "tokenAddress": "0x...", "spender": "0x...",
+      "amount": "unlimited", "isUnlimited": true, "isVerified": true,
+      "riskLevel": "elevated", "note": "No known reports found."
+    }
+  ],
+  "overallRiskSummary": "1 approval(s) flagged as elevated risk..."
+}
+```
+
+**How it works (`app/security_scan.py`):**
+1. `eth_getLogs` for ERC-20 `Approval` events with this wallet as owner
+   finds every (token, spender) pair it's approved, without needing to
+   know addresses in advance. Then the *current* allowance is read via
+   `eth_call` (`allowance(owner, spender)`) rather than trusted from the
+   event log - a token doesn't necessarily re-emit `Approval` when an
+   allowance is partially spent, so only `allowance()` reflects the live
+   number. Event/function selectors were computed from real `keccak256`,
+   not recalled from memory.
+2. **Block range is adaptive, not a fixed 10,000.** The target is the most
+   recent 10,000 blocks, but rate-limited providers (Alchemy's free tier
+   allows just **10 blocks** per unfiltered `eth_getLogs` call) get chunked
+   automatically, capped at 50 chunk requests so a tight limit doesn't turn
+   one scan into hundreds of round-trips. `lookbackBlocks` in the response
+   reports what was *actually* covered - e.g. `499`, not `10000`, when
+   chunking capped it short. Framed as "recent activity," never a full
+   audit.
+3. Amounts at/above `2**96 - 1` are flagged `isUnlimited` - covers both the
+   classic `2**256-1` max approval and smaller-but-still-effectively-
+   infinite patterns some routers use (a uint96 storage slot).
+4. Each unique spender (deduped - one busy router approved for 50 different
+   tokens is one lookup, not 50) is checked for verification: Etherscan
+   `getsourcecode` primary, Sourcify (no API key) fallback on failure/no
+   key.
+5. `riskLevel`: `high` = unlimited + unverified; `elevated` = unlimited+verified
+   *or* limited+unverified; `normal` = limited + verified. An
+   undetermined verification status (both sources inconclusive) is treated
+   like unverified, not assumed safe.
+6. For every uniquely flagged (elevated/high) spender - not every finding -
+   a best-effort cross-check: Tavily search for `"<address> exploit"` /
+   `"<address> scam"`, then the same AI gateway judges whether any result
+   *concretely* ties that exact address to an incident (plain keyword
+   matching was too noisy - almost every result is just a block-explorer
+   page mentioning the address). Never reports "safe" - only a specific
+   finding with its source, or "No known reports found."
+
+Verified end-to-end against real, live wallets (not synthetic fixtures):
+found and correctly priced/classified a real limited approval (`normal`),
+and separately a wallet with 66 real unlimited approvals to major routers
+(1inch, Uniswap Permit2, KyberSwap) - all correctly `elevated` (verified),
+with the LLM cross-check correctly distinguishing "this address is a
+legitimate router mentioned in an unrelated incident report" from an actual
+finding. All four `riskLevel` combinations spot-checked directly. Language
+throughout stays conservative ("elevated risk," "worth reviewing") per the
+project's requirement - signals, not certainty.
+
 ### Verify AI routing (Orbio)
 
 Before building on top of the AI agent, confirm the gateway key actually
@@ -183,8 +251,10 @@ Below the portfolio table: an **Analyze** button (`src/AnalysisChat.tsx`)
 calls `/portfolio/analyze` and renders the returned summary, then a plain
 chat box (text input + send + scrolling message list) calls
 `/portfolio/chat` for follow-ups, resending the full message history each
-turn. No styling polish yet, and no security/approval-scanning logic -
-that's a later step.
+turn. Below that, a **Security Scan** section (`src/SecurityScan.tsx`)
+calls `/portfolio/security-scan` and lists findings sorted highest-risk
+first, color-coded (red = high, yellow = elevated, neutral = normal), with
+the `overallRiskSummary` as a banner on top. No styling polish yet.
 
 ## Notes
 

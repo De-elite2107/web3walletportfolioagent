@@ -12,6 +12,7 @@ from app.database import engine, get_db
 from app.eth_utils import is_valid_address
 from app.portfolio import fetch_portfolio, get_latest_snapshot, save_snapshot
 from app.schemas import AnalyzeRequest, ChatRequest
+from app.security_scan import run_security_scan, save_scan
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("orblo.main")
@@ -132,3 +133,33 @@ def chat_portfolio(req: ChatRequest):
         raise HTTPException(status_code=502, detail=f"LLM chat failed: {e}") from e
 
     return {"reply": reply}
+
+
+@app.get("/portfolio/security-scan")
+def security_scan(
+    address: str = Query(..., description="Wallet address, e.g. 0x..."),
+    chain_id: int = Query(1, description="Chain ID - 1 (mainnet) or 11155111 (sepolia)"),
+    db: Session = Depends(get_db),
+):
+    """Token-approval exposure scan: which contracts currently hold spending
+    approval over this wallet's tokens, how much, and how risky that looks
+    (unlimited amount + unverified spender = highest severity). Covers only
+    the most recent ~10,000 blocks - see app/security_scan.py.
+    """
+    _validate(address, chain_id)
+
+    try:
+        result = run_security_scan(chain_id, address)
+    except Exception as e:  # noqa: BLE001 - don't 500 opaquely on an RPC/API hiccup
+        raise HTTPException(status_code=502, detail=f"Security scan failed: {e}") from e
+
+    logger.info(
+        "security scan address=%s chain_id=%s approvals=%d",
+        address,
+        chain_id,
+        len(result["approvals"]),
+    )
+
+    save_scan(db, wallet_address=address, chain_id=chain_id, raw_json=result)
+
+    return result

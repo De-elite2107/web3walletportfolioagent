@@ -23,3 +23,19 @@ class PortfolioSnapshot(Base):
     fetched_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     total_usd_value: Mapped[object] = mapped_column(Numeric, nullable=True)
     raw_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+
+class SecurityScanSnapshot(Base):
+    """One security scan result for a (wallet_address, chain_id) pair.
+
+    Same pattern as PortfolioSnapshot: just persistence for now, no
+    change-over-time view built on this yet.
+    """
+
+    __tablename__ = "security_scan_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    wallet_address: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    chain_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    scanned_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    raw_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
