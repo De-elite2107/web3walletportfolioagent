@@ -4,10 +4,10 @@ import Header from './Header'
 import AnalysisChat from './AnalysisChat'
 import SecurityScan from './SecurityScan'
 import Banner from './components/Banner'
-import ErrorBanner, { toPlainMessage } from './components/ErrorBanner'
+import ErrorBanner from './components/ErrorBanner'
 import Skeleton from './components/Skeleton'
 import Spinner from './components/Spinner'
-import { API_BASE_URL } from './api'
+import { API_BASE_URL, fetchJson, toPlainMessage } from './api'
 import type { PortfolioResponse } from './types'
 import './App.css'
 
@@ -80,17 +80,10 @@ function App() {
     setLoading(true)
     setError(null)
 
-    fetch(`${API_BASE_URL}/portfolio?address=${address}&chain_id=${chainId}`, {
+    fetchJson(`${API_BASE_URL}/portfolio?address=${address}&chain_id=${chainId}`, {
       signal: controller.signal,
     })
-      .then(async (res) => {
-        if (!res.ok) {
-          const body = await res.json().catch(() => null)
-          throw new Error(body?.detail ? String(body.detail) : `Request failed with status ${res.status}`)
-        }
-        return res.json() as Promise<PortfolioResponse>
-      })
-      .then(setPortfolio)
+      .then((data) => setPortfolio(data as PortfolioResponse))
       .catch((err: unknown) => {
         const message = toPlainMessage(err)
         if (message) setError(message)

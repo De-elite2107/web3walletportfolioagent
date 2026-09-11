@@ -32,6 +32,16 @@ def _portfolio_context(portfolio: dict) -> dict:
     return {"role": "user", "content": f"Wallet portfolio data:\n```json\n{json.dumps(portfolio, indent=2)}\n```"}
 
 
+def _content_or_fallback(response, fallback: str) -> str:
+    """The SDK types chat completion content as `str | None` - a refusal or
+    an unusual gateway response can return no content. Never let that
+    propagate as a null summary/reply to the client (it would crash the
+    frontend's markdown renderer).
+    """
+    content = response.choices[0].message.content
+    return content if content else fallback
+
+
 def summarize_portfolio(portfolio: dict) -> str:
     client = get_ai_client()
     response = client.chat.completions.create(
@@ -51,7 +61,7 @@ def summarize_portfolio(portfolio: dict) -> str:
         ],
         max_tokens=600,
     )
-    return response.choices[0].message.content
+    return _content_or_fallback(response, "No summary was generated - please try again.")
 
 
 def chat_about_portfolio(portfolio: dict, history: list[dict], message: str) -> str:
@@ -69,4 +79,4 @@ def chat_about_portfolio(portfolio: dict, history: list[dict], message: str) -> 
         messages=messages,
         max_tokens=600,
     )
-    return response.choices[0].message.content
+    return _content_or_fallback(response, "No response was generated - please try again.")

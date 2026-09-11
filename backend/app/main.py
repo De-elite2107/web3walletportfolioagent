@@ -3,6 +3,9 @@ import logging
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from app.alchemy_client import AlchemyError
@@ -19,6 +22,21 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("orblo.main")
 
 app = FastAPI(title="Orblo API", version="0.1.0")
+
+# Per-IP rate limiting - analyze/chat/security-scan each spend real LLM/
+# Alchemy/Etherscan/Tavily budget per call, so an unthrottled endpoint is an
+# open-ended cost exposure the moment this API is reachable beyond
+# localhost. Limits are generous enough not to interrupt normal demo use.
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    # slowapi's default handler responds with {"error": ...} - use "detail"
+    # instead so it matches every other error shape in this API (the
+    # frontend specifically reads response.detail).
+    return JSONResponse(status_code=429, content={"detail": f"Rate limit exceeded: {exc.detail} - please slow down."})
 
 # Allow the Vite dev server to call the API during local development.
 app.add_middleware(
@@ -50,7 +68,7 @@ def create_tables():
 
     try:
         Base.metadata.create_all(bind=engine)
-    except Exception as e:  # noqa: BLE001 - don't crash startup if Postgres isn't up yet
+    except Exception as e:  # noqa: BLE001 - deliberately swallowed: don't crash startup if Postgres isn't up yet
         logger.warning("could not create tables (is Postgres running / DATABASE_URL correct?): %s", e)
 
 
@@ -62,13 +80,23 @@ def _validate(address: str, chain_id: int) -> None:
         raise HTTPException(status_code=400, detail=f"Unsupported chain_id {chain_id} - expected one of: {supported}")
 
 
+def _upstream_error(prefix: str, e: Exception) -> HTTPException:
+    """Log the real exception (which can include raw upstream response
+    bodies) server-side, but never pass that verbatim to the client - keeps
+    error banners readable and avoids incidentally echoing back more detail
+    than intended from a third-party API's error response.
+    """
+    logger.warning("%s: %r", prefix, e)
+    return HTTPException(status_code=502, detail=f"{prefix} - please try again in a moment.")
+
+
 def _fetch_and_persist(db: Session, chain_id: int, address: str) -> dict:
     try:
         result = fetch_portfolio(chain_id, address)
     except AlchemyError as e:
-        raise HTTPException(status_code=502, detail=f"Alchemy request failed: {e}") from e
-    except Exception as e:  # noqa: BLE001 - surface public-RPC failures the same way
-        raise HTTPException(status_code=502, detail=f"On-chain read failed: {e}") from e
+        raise _upstream_error("Alchemy request failed", e) from e
+    except Exception as e:  # surface public-RPC failures the same way
+        raise _upstream_error("On-chain read failed", e) from e
 
     logger.info(
         "portfolio fetched address=%s chain_id=%s source=%s tokens=%d transactions=%d",
@@ -106,7 +134,8 @@ def get_portfolio(
 
 
 @app.post("/portfolio/analyze")
-def analyze_portfolio(req: AnalyzeRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def analyze_portfolio(request: Request, req: AnalyzeRequest, db: Session = Depends(get_db)):
     """LLM summary of a wallet's latest portfolio snapshot.
 
     Reuses the most recently persisted snapshot for this wallet/chain rather
@@ -121,8 +150,8 @@ def analyze_portfolio(req: AnalyzeRequest, db: Session = Depends(get_db)):
 
     try:
         summary = summarize_portfolio(portfolio)
-    except Exception as e:  # noqa: BLE001 - don't let an LLM/network hiccup 500 opaquely
-        raise HTTPException(status_code=502, detail=f"LLM analysis failed: {e}") from e
+    except Exception as e:  # don't let an LLM/network hiccup 500 opaquely
+        raise _upstream_error("LLM analysis failed", e) from e
 
     logger.info("portfolio analyzed address=%s chain_id=%s model=%s", req.address, req.chainId, settings.model_name)
 
@@ -130,7 +159,8 @@ def analyze_portfolio(req: AnalyzeRequest, db: Session = Depends(get_db)):
 
 
 @app.post("/portfolio/chat")
-def chat_portfolio(req: ChatRequest):
+@limiter.limit("20/minute")
+def chat_portfolio(request: Request, req: ChatRequest):
     """Follow-up chat about a wallet, grounded in the portfolio snapshot the
     client already has (from /portfolio or /portfolio/analyze) - no DB
     lookup, so the reply is always grounded in exactly what's on screen.
@@ -138,18 +168,21 @@ def chat_portfolio(req: ChatRequest):
     if not is_valid_address(req.address):
         raise HTTPException(status_code=400, detail=f"{req.address!r} is not a valid EVM address")
 
+    portfolio = req.portfolio.model_dump(by_alias=True)
     try:
         reply = chat_about_portfolio(
-            req.portfolio, [{"role": h.role, "content": h.content} for h in req.history], req.message
+            portfolio, [{"role": h.role, "content": h.content} for h in req.history], req.message
         )
-    except Exception as e:  # noqa: BLE001 - don't let an LLM/network hiccup 500 opaquely
-        raise HTTPException(status_code=502, detail=f"LLM chat failed: {e}") from e
+    except Exception as e:  # don't let an LLM/network hiccup 500 opaquely
+        raise _upstream_error("LLM chat failed", e) from e
 
     return {"reply": reply}
 
 
 @app.get("/portfolio/security-scan")
+@limiter.limit("5/minute")
 def security_scan(
+    request: Request,
     address: str = Query(..., description="Wallet address, e.g. 0x..."),
     chain_id: int = Query(1, description="Chain ID - 1 (mainnet) or 11155111 (sepolia)"),
     db: Session = Depends(get_db),
@@ -163,8 +196,8 @@ def security_scan(
 
     try:
         result = run_security_scan(chain_id, address)
-    except Exception as e:  # noqa: BLE001 - don't 500 opaquely on an RPC/API hiccup
-        raise HTTPException(status_code=502, detail=f"Security scan failed: {e}") from e
+    except Exception as e:  # don't 500 opaquely on an RPC/API hiccup
+        raise _upstream_error("Security scan failed", e) from e
 
     logger.info(
         "security scan address=%s chain_id=%s approvals=%d",

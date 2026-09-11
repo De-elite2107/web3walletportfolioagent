@@ -1,0 +1,9 @@
+# Minimal ruff config so `ruff check app/` reports real issues instead of
+# false positives from running fully unconfigured.
+target-version = "py311"
+
+[lint.flake8-bugbear]
+# FastAPI's own dependency-injection pattern requires calling Depends()/
+# Query() as a function-default argument - bugbear's B008 doesn't know
+# this is intentional for these two callables.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]

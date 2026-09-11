@@ -1,22 +1,14 @@
 import { useState } from 'react'
-import ErrorBanner, { toPlainMessage } from './components/ErrorBanner'
+import ErrorBanner from './components/ErrorBanner'
 import MarkdownLite from './components/MarkdownLite'
 import Spinner from './components/Spinner'
 import Skeleton from './components/Skeleton'
-import { API_BASE_URL } from './api'
+import { API_BASE_URL, fetchJson, toPlainMessage } from './api'
 import type { PortfolioResponse } from './types'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
-}
-
-async function parseErrorOrJson(res: Response) {
-  if (!res.ok) {
-    const body = await res.json().catch(() => null)
-    throw new Error(body?.detail ? String(body.detail) : `Request failed with status ${res.status}`)
-  }
-  return res.json()
 }
 
 export default function AnalysisChat({
@@ -42,13 +34,11 @@ export default function AnalysisChat({
     setAnalyzing(true)
     setAnalyzeError(null)
     try {
-      const data = await parseErrorOrJson(
-        await fetch(`${API_BASE_URL}/portfolio/analyze`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address, chainId }),
-        }),
-      )
+      const data = await fetchJson(`${API_BASE_URL}/portfolio/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address, chainId }),
+      })
       setSummary(data.summary)
       setAnalyzedPortfolio(data.portfolio)
       setMessages([])
@@ -71,13 +61,11 @@ export default function AnalysisChat({
     setChatError(null)
 
     try {
-      const data = await parseErrorOrJson(
-        await fetch(`${API_BASE_URL}/portfolio/chat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address, portfolio: analyzedPortfolio, history: messages, message: trimmed }),
-        }),
-      )
+      const data = await fetchJson(`${API_BASE_URL}/portfolio/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address, portfolio: analyzedPortfolio, history: messages, message: trimmed }),
+      })
       setMessages([...nextMessages, { role: 'assistant', content: data.reply }])
     } catch (err) {
       setChatError(toPlainMessage(err))

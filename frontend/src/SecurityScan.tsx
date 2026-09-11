@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import Banner from './components/Banner'
-import ErrorBanner, { toPlainMessage } from './components/ErrorBanner'
+import ErrorBanner from './components/ErrorBanner'
 import Spinner from './components/Spinner'
 import Skeleton from './components/Skeleton'
-import { API_BASE_URL } from './api'
+import { API_BASE_URL, fetchJson, toPlainMessage } from './api'
 import type { RiskLevel, SecurityScanResponse } from './types'
 
 const BADGE_CLASS: Record<RiskLevel, string> = {
@@ -27,12 +27,8 @@ export default function SecurityScan({ address, chainId }: { address: string; ch
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${API_BASE_URL}/portfolio/security-scan?address=${address}&chain_id=${chainId}`)
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        throw new Error(body?.detail ? String(body.detail) : `Request failed with status ${res.status}`)
-      }
-      setResult(await res.json())
+      const data = await fetchJson(`${API_BASE_URL}/portfolio/security-scan?address=${address}&chain_id=${chainId}`)
+      setResult(data)
     } catch (err) {
       setError(toPlainMessage(err))
     } finally {
