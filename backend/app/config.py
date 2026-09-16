@@ -18,9 +18,11 @@ load_dotenv(dotenv_path=ENV_PATH)
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(ENV_PATH), extra="ignore")
 
-    anthropic_base_url: str = ""
-    anthropic_auth_token: str = ""
-    anthropic_api_key: str = ""
+    # Generic OpenAI-compatible LLM gateway - no Anthropic account or SDK
+    # involved (see app/ai_client.py). This project was developed against
+    # Orbio; any OpenAI-compatible gateway (OpenRouter, etc.) works.
+    llm_base_url: str = ""
+    llm_auth_token: str = ""
     alchemy_api_key: str = ""
     etherscan_api_key: str = ""
     tavily_api_key: str = ""

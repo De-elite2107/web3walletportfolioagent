@@ -1,4 +1,4 @@
-# Model-tier configuration for the AI gateway (ANTHROPIC_BASE_URL / Orbio).
+# Model-tier configuration for the AI gateway (LLM_BASE_URL / Orbio).
 #
 # Switch tiers without touching code: set MODEL_TIER in .env to one of the
 # keys below (default: draft). Model ids use the gateway's OpenRouter-style

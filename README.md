@@ -2,6 +2,8 @@
 
 Orblo is an on-chain wallet portfolio agent: connect a wallet and it reads your real holdings (native balance + ERC-20 tokens), prices everything in USD via Chainlink and CoinGecko, explains what you're holding in plain language through an AI chat interface, and runs a security scan that flags risky token approvals - unlimited spending allowances and unverified spender contracts - so you know not just *what* you hold but *what's risky about it*.
 
+**No Anthropic account needed.** LLM calls go through the `openai` Python SDK pointed at an OpenAI-compatible gateway - built and tested against [Orbio](https://orbio.so) - not the Anthropic SDK or an Anthropic API key. See `backend/app/ai_client.py`.
+
 ## Why this matters
 
 Most wallet trackers stop at a balance sheet: tokens, prices, a pie chart. That tells you what you own, not what could go wrong. A wallet can look fine on a balance sheet while quietly holding an **unlimited, unverified** approval from months ago - the exact shape of the approvals drainer scams exploit. Orblo pairs the balance sheet with an approval scan and a plain-language explanation, so "what do I hold" and "what should I be worried about" are answered in the same place, not two different tools.
@@ -23,7 +25,7 @@ See [DEMO.md](DEMO.md) for a 5-step walkthrough (connect -> portfolio -> analysi
 | Pricing | Chainlink price feeds (on-chain), CoinGecko (fallback) |
 | Contract verification | Etherscan `getsourcecode` (primary), Sourcify (no-key fallback) |
 | Exploit/scam lookup | Tavily search + LLM relevance judgment |
-| LLM | Claude, via an OpenAI-compatible gateway (OpenRouter / Orbio) |
+| LLM | Claude, via the `openai` SDK pointed at an OpenAI-compatible gateway (Orbio / OpenRouter) - no Anthropic SDK or API key |
 
 ## Getting started
 
@@ -31,22 +33,21 @@ See [DEMO.md](DEMO.md) for a 5-step walkthrough (connect -> portfolio -> analysi
 
 | Key | Required for | Where to get it |
 |---|---|---|
-| `ANTHROPIC_AUTH_TOKEN` | AI analysis + chat + security-scan risk lookup | Any OpenAI-compatible LLM gateway - [OpenRouter](https://openrouter.ai/keys) is the easiest public option (free signup, pay-as-you-go credits) |
+| `LLM_AUTH_TOKEN` | AI analysis + chat + security-scan risk lookup | Any OpenAI-compatible LLM gateway - [OpenRouter](https://openrouter.ai/keys) is the easiest public option (free signup, pay-as-you-go credits). **Not an Anthropic API key** - this is a bearer token for the gateway, used via the plain `openai` SDK |
 | `ALCHEMY_API_KEY` | Full on-chain reads (balances, transaction history, token discovery) | [alchemy.com](https://www.alchemy.com/) -> sign up -> create an app on Ethereum Mainnet -> copy the API key. Without this, the app still runs on a degraded public-RPC fallback (see [Known limitations](#known-limitations)) |
 | `ETHERSCAN_API_KEY` | Security scan: contract verification | [etherscan.io/apis](https://etherscan.io/apis) -> free account -> generate an API key. Without this, verification falls back to Sourcify (no key needed, slightly lower coverage) |
 | `TAVILY_API_KEY` | Security scan: known-exploit/scam web search | [tavily.com](https://tavily.com/) -> free developer key |
 | `VITE_WALLETCONNECT_PROJECT_ID` | WalletConnect-based wallet connectors in the frontend | [cloud.walletconnect.com](https://cloud.walletconnect.com/) -> free project. Injected wallets (e.g. MetaMask's browser extension) work without this |
 
-None of these are required to explore the code, but `ANTHROPIC_AUTH_TOKEN` and `ALCHEMY_API_KEY` are required for the app to do anything useful end to end.
+None of these are required to explore the code, but `LLM_AUTH_TOKEN` and `ALCHEMY_API_KEY` are required for the app to do anything useful end to end.
 
 ### 2. Environment variables
 
 Copy `.env.example` to `.env` at the repo root and fill in the keys above:
 
 ```
-ANTHROPIC_BASE_URL=https://openrouter.ai/api/v1   # or any OpenAI-compatible gateway
-ANTHROPIC_AUTH_TOKEN=                              # your gateway key, used as the bearer token
-ANTHROPIC_API_KEY=                                 # leave empty - see Notes below
+LLM_BASE_URL=https://openrouter.ai/api/v1          # or any OpenAI-compatible gateway - no Anthropic account needed
+LLM_AUTH_TOKEN=                                    # your gateway key, used as the bearer token
 MODEL_TIER=draft                                   # draft | production | premium - see backend/models.yaml
 MODEL_NAME=anthropic/claude-haiku-4.5              # model used by analyze/chat/security-scan today
 ALCHEMY_API_KEY=                                   # on-chain reads
@@ -54,6 +55,8 @@ ETHERSCAN_API_KEY=                                 # security scan: contract ver
 TAVILY_API_KEY=                                    # security scan: exploit/scam lookup
 DATABASE_URL=                                      # e.g. postgresql://postgres:postgres@localhost:5433/orblo
 ```
+
+`MODEL_NAME` uses the gateway's OpenRouter-style `provider/model` naming (e.g. `anthropic/claude-haiku-4.5` selects a Claude model *through* the gateway) - it isn't itself an Anthropic API parameter.
 
 `.env` is gitignored - never commit real secrets. `frontend/.env.example` covers the one frontend-only variable (`VITE_WALLETCONNECT_PROJECT_ID`).
 
@@ -331,6 +334,8 @@ at each step, no console errors.
 
 - The backend's CORS config allows `http://localhost:5173` (the default Vite
   dev port) to call the API locally.
-- `ANTHROPIC_API_KEY` takes precedence over `ANTHROPIC_AUTH_TOKEN` in
-  Anthropic's own SDKs - this project intentionally keeps it empty and uses
-  `ANTHROPIC_AUTH_TOKEN` for AI gateway routing.
+- No Anthropic SDK, account, or API key is used anywhere in this project -
+  see the note at the top of this README and `backend/app/ai_client.py`.
+  `LLM_*`-prefixed env var names were chosen to be gateway-neutral on
+  purpose, since the actual gateway (Orbio, OpenRouter, or otherwise) is a
+  deployment choice, not something this code is tied to.
