@@ -1,15 +1,26 @@
 import { useEffect, useState } from 'react'
 import { useAccount, useChainId } from 'wagmi'
+import { mainnet } from 'wagmi/chains'
 import Header from './Header'
+import AddressLookup from './AddressLookup'
 import AnalysisChat from './AnalysisChat'
 import SecurityScan from './SecurityScan'
 import Banner from './components/Banner'
 import ErrorBanner from './components/ErrorBanner'
 import Skeleton from './components/Skeleton'
 import Spinner from './components/Spinner'
-import { API_BASE_URL, fetchJson, toPlainMessage } from './api'
+import { ADDRESS_RE, API_BASE_URL, fetchJson, toPlainMessage } from './api'
 import type { PortfolioResponse } from './types'
 import './App.css'
+
+/** `?address=0x…` opens the dashboard read-only for that public address, no
+ * wallet connection needed. Anything that isn't a well-formed address is
+ * ignored rather than used.
+ */
+function readViewAddressFromUrl(): string | null {
+  const value = new URLSearchParams(window.location.search).get('address')
+  return value && ADDRESS_RE.test(value) ? value : null
+}
 
 function formatUsd(value: string | null): string {
   if (value === null) return '—'
@@ -61,8 +72,27 @@ function HoldingsTableSkeleton() {
 }
 
 function App() {
-  const { address, isConnected, chain } = useAccount()
-  const chainId = useChainId()
+  const account = useAccount()
+  const wagmiChainId = useChainId()
+
+  // Read-only mode wins over a connected wallet while active; exiting it
+  // falls back to whatever's connected. Read-only always uses mainnet.
+  const [viewAddress, setViewAddress] = useState<string | null>(readViewAddressFromUrl)
+  const readOnly = viewAddress !== null
+  const address = viewAddress ?? account.address
+  const isConnected = readOnly || account.isConnected
+  const chainId = readOnly ? mainnet.id : wagmiChainId
+  const chainLabel = readOnly ? 'Ethereum Mainnet' : (account.chain?.name ?? `Chain ${chainId}`)
+
+  function openReadOnly(next: string) {
+    setViewAddress(next)
+    window.history.replaceState(null, '', `?address=${next}`)
+  }
+
+  function closeReadOnly() {
+    setViewAddress(null)
+    window.history.replaceState(null, '', window.location.pathname)
+  }
 
   const [portfolio, setPortfolio] = useState<PortfolioResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -102,16 +132,35 @@ function App() {
           <div className="connect-screen">
             <h2>Connect a wallet to get started</h2>
             <p>Orblo reads your on-chain holdings, prices them, and flags anything worth reviewing.</p>
+            <p className="section-hint" style={{ marginTop: '0.5rem' }}>
+              Or look up any public address read-only - no wallet needed:
+            </p>
+            <AddressLookup onSubmit={openReadOnly} />
           </div>
         )}
 
         {isConnected && (
           <div>
+            {readOnly && (
+              <div style={{ marginBottom: '1rem' }}>
+                <Banner variant="neutral">
+                  Read-only view - no wallet is connected and nothing is signed. Balances and approvals are public
+                  on-chain data.
+                </Banner>
+              </div>
+            )}
             <div className="wallet-bar">
               <span>
-                Connected as <code>{address}</code>
+                {readOnly ? 'Viewing' : 'Connected as'} <code>{address}</code>
               </span>
-              <span>{chain?.name ?? `Chain ${chainId}`}</span>
+              <span>
+                {chainLabel}
+                {readOnly && (
+                  <button className="btn" style={{ marginLeft: '0.75rem', padding: '4px 10px' }} onClick={closeReadOnly}>
+                    Exit read-only
+                  </button>
+                )}
+              </span>
             </div>
 
             {loading && (
@@ -210,8 +259,9 @@ function App() {
                             </tr>
                           </thead>
                           <tbody>
-                            {portfolio.recentTransactions.map((tx) => (
-                              <tr key={tx.hash}>
+                            {portfolio.recentTransactions.map((tx, i) => (
+                              // One tx can emit several transfers (same hash), so the hash alone isn't a unique key.
+                              <tr key={`${tx.hash}-${i}`}>
                                 <td>
                                   {tx.hash.slice(0, 10)}…{tx.hash.slice(-6)}
                                 </td>

@@ -1,5 +1,10 @@
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
+/** Same shape the backend enforces (app/eth_utils.py) - used to validate an
+ * address before it's ever put in a request or read from the URL.
+ */
+export const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/
+
 /** Turns a raw error into a plain-language message. The backend already
  * returns clean, readable `detail` strings for known failure modes (bad
  * address, Alchemy/Etherscan/LLM failures, timeouts, rate limits) - this

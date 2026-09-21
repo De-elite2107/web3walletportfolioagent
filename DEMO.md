@@ -15,19 +15,35 @@ the default UX on most of those, so an active DeFi wallet almost always has
 at least one `elevated`-risk finding to show.
 
 If you don't have one handy, `0x74de5d4fcbf63e00296fd95d33236b9794016631`
-is a real, public mainnet wallet (verified during development) with dozens
-of active unlimited approvals to well-known routers - safe to reference
-since it's read-only (no private key involved) and its data is already
-public on any block explorer. The app currently only shows the *connected*
-wallet's data (no manual address-lookup field), so to actually demo with an
-address you don't hold keys for, connect via a wallet extension that
-supports watch-only/read-only addresses (e.g. Rabby Wallet's "Add
-contacts" -> watch mode) rather than a standard MetaMask connection. If
-that's not set up in time, calling the backend directly is a fine fallback
-for just this one step:
+is a real, public mainnet wallet with dozens of active unlimited approvals
+to well-known routers (1inch, Permit2, ...) - safe to use since it's
+read-only: no private key, and its data is already public on any block
+explorer.
+
+**Read-only mode:** the app can open any public address without a wallet
+connection - either paste it into the "look up any public address" box on
+the landing screen, or open it directly:
 ```
-curl "http://localhost:8000/portfolio/security-scan?address=0x74de5d4fcbf63e00296fd95d33236b9794016631&chain_id=1"
+http://localhost:5173/?address=0x74de5d4fcbf63e00296fd95d33236b9794016631
 ```
+A "Read-only view - no wallet is connected and nothing is signed" banner is
+shown the whole time, so say so in the recording: you're looking at a public
+address, not a connected wallet. Skip step 1's wallet-connect for this
+variant (or do it in a separate take with your own wallet).
+
+Things to know about this specific wallet (checked live, 2026-09-21):
+- It's an active bot-like wallet, so its **portfolio value is ~$0** (no ETH,
+  one worthless token). Step 2 won't be impressive - keep it short and
+  spend the time on the security scan, which is the strong part (85 flagged
+  approvals when tested).
+- The scan only covers **recent activity** (the last few hundred blocks, see
+  Known limitations), so the count depends on the wallet still being active
+  when you record. Do a dry run right before recording; if it comes back
+  empty, pick another wallet with recent DeFi activity.
+- Steps 3-4 (analysis, chat) need LLM credit. Without it they show an error
+  banner and the scan's exploit/scam notes fall back to the generic "no
+  known reports found" text - the risk levels and verified flags are still
+  real. Skip those steps (or top up) before recording.
 
 ## The 5 steps
 

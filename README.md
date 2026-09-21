@@ -93,6 +93,8 @@ npm run dev
 
 Opens on http://localhost:5173. Connect a wallet, and the dashboard walks top to bottom: portfolio value + holdings, recent transactions, AI analysis + chat, security scan.
 
+No wallet handy? Paste any public address into the lookup box on the landing screen (or open `/?address=0x...`) for a **read-only view** of that address on Ethereum mainnet - a banner makes clear nothing is connected or signed. Handy for demos and for checking someone else's public address.
+
 ## Known limitations
 
 Shipping honestly means naming these rather than hiding them:
